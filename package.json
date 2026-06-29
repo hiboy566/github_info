@@ -1,0 +1,54 @@
+{
+  "name": "github_info",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "vp run -r dev",
+    "build": "vp run -r build",
+    "check-types": "vp run -r check-types",
+    "check": "biome check --write .",
+    "lint": "vp lint",
+    "format": "vp fmt",
+    "staged": "vp staged",
+    "dev:web": "vp run --filter web dev",
+    "dev:server": "vp run --filter server dev",
+    "db:push": "vp run --filter @github_info/db db:push",
+    "db:studio": "vp run --filter @github_info/db db:studio",
+    "db:generate": "vp run --filter @github_info/db db:generate",
+    "db:migrate": "vp run --filter @github_info/db db:migrate",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "@github_info/env": "workspace:*",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
+    "@github_info/config": "workspace:*",
+    "@types/node": "catalog:",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
+    "rolldown": "1.1.0",
+    "typescript": "catalog:",
+    "vite-plus": "0.1.24"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.1.24",
+    "vitest": "npm:@voidzero-dev/vite-plus-test@0.1.24"
+  },
+  "lint-staged": {
+    "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc}": [
+      "biome check --write ."
+    ]
+  },
+  "packageManager": "pnpm@11.7.0"
+}
