@@ -1,7 +1,12 @@
+import { db } from "@github_info/db";
+import { upsertGithubAccount } from "@github_info/db/queries/github-account";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-
-import { fetchGithubUser, GithubClientError } from "../github/client";
+import {
+	fetchGithubUser,
+	type GithubAccount,
+	GithubClientError,
+} from "../github/client";
 import { publicProcedure, router } from "../index";
 
 const errorCodeMap = {
@@ -18,8 +23,9 @@ export const githubAccountRouter = router({
 	fetch: publicProcedure
 		.input(z.object({ token: z.string().min(1, "Token 不能为空") }))
 		.mutation(async ({ input }) => {
+			let account: GithubAccount;
 			try {
-				return await fetchGithubUser(input.token);
+				account = await fetchGithubUser(input.token);
 			} catch (err) {
 				if (err instanceof GithubClientError) {
 					throw new TRPCError({
@@ -34,5 +40,19 @@ export const githubAccountRouter = router({
 					message: "请求失败，请稍后重试。",
 				});
 			}
+
+			let saved = false;
+			try {
+				await upsertGithubAccount(db, account);
+				saved = true;
+			} catch (err) {
+				// Save failure is non-blocking; log without leaking the token.
+				console.error(
+					"[githubAccount.fetch] upsert failed:",
+					err instanceof Error ? err.message : "unknown error",
+				);
+			}
+
+			return { account, saved };
 		}),
 });

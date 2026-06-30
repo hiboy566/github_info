@@ -5,6 +5,7 @@ import { Label } from "@github_info/ui/components/label";
 import { useForm } from "@tanstack/react-form";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import z from "zod";
 
 import { trpc } from "@/utils/trpc";
@@ -45,7 +46,21 @@ export default function TokenForm({
 			onBeforeSubmit?.();
 			// Reset any previous mutation state before a new attempt.
 			mutation.reset();
-			mutation.mutate({ token: value.token }, { onSuccess });
+			mutation.mutate(
+				{ token: value.token },
+				{
+					onSuccess: ({ account, saved }) => {
+						if (saved) {
+							toast.success("已保存");
+						} else {
+							toast.warning("账户信息获取成功，但保存失败");
+						}
+						// Pass only the account up to the parent; saved state is
+						// surfaced via toast and must not block AccountCard display.
+						onSuccess(account);
+					},
+				},
+			);
 		},
 		validators: {
 			onSubmit: tokenSchema,

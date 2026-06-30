@@ -13,11 +13,24 @@ vi.mock("../github/client", async (importOriginal) => {
 	};
 });
 
-// These imports are resolved after the mock is applied.
+// Prevent the db singleton from attempting a real database connection in tests.
+vi.mock("@github_info/db", () => ({
+	db: {},
+}));
+
+// Mock the upsert helper; tests control per-call outcomes with
+// mockResolvedValueOnce / mockRejectedValueOnce.
+vi.mock("@github_info/db/queries/github-account", () => ({
+	upsertGithubAccount: vi.fn(),
+}));
+
+// These imports are resolved after the mocks are applied.
+import { upsertGithubAccount } from "@github_info/db/queries/github-account";
 import { fetchGithubUser } from "../github/client";
 import { appRouter } from "./index";
 
 const mockFetchGithubUser = vi.mocked(fetchGithubUser);
+const mockUpsertGithubAccount = vi.mocked(upsertGithubAccount);
 
 const mockAccount: GithubAccount = {
 	githubId: 99999,
@@ -42,15 +55,32 @@ describe("githubAccount.fetch tRPC procedure", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// Default: upsert resolves successfully so tests that do not override it
+		// get the happy-path behaviour without extra setup.
+		mockUpsertGithubAccount.mockResolvedValue(undefined as never);
 	});
 
-	it("returns GithubAccount on a successful fetch (AC-001)", async () => {
+	it("returns { account, saved: true } on successful fetch and save (AC-001)", async () => {
 		mockFetchGithubUser.mockResolvedValueOnce(mockAccount);
 
 		const result = await caller.githubAccount.fetch({ token: "ghp_valid" });
 
-		expect(result).toEqual(mockAccount);
+		expect(result).toEqual({ account: mockAccount, saved: true });
 		expect(mockFetchGithubUser).toHaveBeenCalledWith("ghp_valid");
+		expect(mockUpsertGithubAccount).toHaveBeenCalledOnce();
+	});
+
+	it("returns { account, saved: false } when upsert fails — save does not block response (F-004)", async () => {
+		mockFetchGithubUser.mockResolvedValueOnce(mockAccount);
+		mockUpsertGithubAccount.mockRejectedValueOnce(
+			new Error("DB connection failed"),
+		);
+
+		const result = await caller.githubAccount.fetch({ token: "ghp_valid" });
+
+		expect(result).toEqual({ account: mockAccount, saved: false });
+		expect(mockFetchGithubUser).toHaveBeenCalledWith("ghp_valid");
+		expect(mockUpsertGithubAccount).toHaveBeenCalledOnce();
 	});
 
 	it("propagates the token to fetchGithubUser without modification", async () => {
@@ -107,6 +137,17 @@ describe("githubAccount.fetch tRPC procedure", () => {
 		await expect(
 			caller.githubAccount.fetch({ token: "" }),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	it("handles non-Error upsert rejection gracefully — saved=false, no crash (branch AC-004)", async () => {
+		mockFetchGithubUser.mockResolvedValueOnce(mockAccount);
+		// Reject with a plain string to exercise the `"unknown error"` branch
+		// inside the catch block (line 52: err instanceof Error ? err.message : "unknown error")
+		mockUpsertGithubAccount.mockRejectedValueOnce("plain string rejection");
+
+		const result = await caller.githubAccount.fetch({ token: "ghp_valid" });
+
+		expect(result).toEqual({ account: mockAccount, saved: false });
 	});
 
 	it("wraps unexpected non-domain errors as INTERNAL_SERVER_ERROR", async () => {

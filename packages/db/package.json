@@ -10,6 +10,7 @@
     }
   },
   "scripts": {
+    "test": "vp test run",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
@@ -24,7 +25,9 @@
   },
   "devDependencies": {
     "@github_info/config": "workspace:*",
+    "@vitest/coverage-v8": "^4.1.9",
     "drizzle-kit": "^0.31.8",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "^4.1.9"
   }
 }

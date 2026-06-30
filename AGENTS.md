@@ -35,4 +35,26 @@
 - GitHub 拉取加了 `AbortSignal.timeout(10s)` 防上游挂起拖死 handler(CWE-400);catch 把 AbortError 归类为 upstream-error。
 
 **/yd:ai 调用方流程(给下次的我)**
-- workflow 跑完会把一个 feature 的所有 task 改动**一起留在工作树未提交**,且因 agent 跑过 `biome check --write .` 而**全仓重排版**。调用方应:先 `git checkout HEAD -- . ':!<feature 文件>'` 还原排版噪声 → 跑 codex 门 → 提交(`--no-verify`)。
+- workflow 跑完会把一个 feature 的所有 task 改动**一起留在工作树未提交**,且因 agent 跑过 `biome check --write .` 而**全仓重排版**。调用方应:先 `git checkout HEAD -- . ':!<feature 文件>'` 还原排版噪声 → 跑 codex 门 → 提交(`--no-verify`)。(注:Feature 2 起 agent 用 Opus 实现,未再全仓重排版,噪声大幅减少。)
+
+## 2026-06-30 — github-account-persistence (Feature 2)
+
+**Monorepo 依赖方向**
+- `packages/db` 不能 import `packages/api`(api→db,反向成环)。db 的 query helper 自定义本地镜像类型(`GithubAccountInput` ≅ `GithubAccount`,结构等价即可),勿从 `@github_info/api` 导。
+- `GithubAccount.githubId` 是 `number`,DB 列 `github_id` 是 `text` → upsert helper 内 `String(githubId)`;`github_created_at` 是 GitHub ISO 字符串 → `new Date()` 再入库。
+- `packages/db/queries/*` 无 barrel,直接 `import { upsertGithubAccount } from "@github_info/db/queries/github-account"`(`./*` exports)。
+
+**Drizzle schema 目录陷阱(codex 门抓到的)**
+- `drizzle.config.ts` 的 `schema: "./src/schema"` 会 glob 该目录**所有 .ts**;`db:generate`/`db:migrate`/`db:push` 把里面文件当 schema 导入。**绝不要把测试(或任何非 schema 的 .ts)放进 `src/schema/`** —— 会被 drizzle-kit 导入、执行 `describe()`、可能让 DB 命令崩。db 测试放 `src/__tests__/` 或 `src/queries/`(本 feature 已把 schema 测试从 `src/schema/` 移到 `src/__tests__/`)。
+
+**迁移 / DB**
+- 首个迁移 `0000` 会**打包所有表**(auth + github_accounts),因无历史迁移。本项目 Neon 库当时为空,`db:migrate` 一次性建了 5 张表(若 auth 表已存在会冲突 → 届时改用 `db:push` 增量或编辑迁移)。
+- `pnpm db:migrate` 无需额外配 DATABASE_URL —— `drizzle.config.ts` 自带 dotenv 从 `apps/server/.env` 注入。Neon serverless 正常支持 `onConflictDoUpdate`。
+
+**测试 / 前端**
+- Vitest mock `@github_info/db`:`vi.mock("@github_info/db", () => ({ db: {} }))` 防 `createDb()` 里的 `neon()` 在测试 import 时真连库。`vi.clearAllMocks()` 只清调用记录、不重置 `mockResolvedValue` → 默认值在 `beforeEach` 里清完再设。
+- `githubAccount.fetch` 返回由 `GithubAccount` 变为 `{ account, saved }`(apiChange);TanStack `mutate(vars, { onSuccess })` 回调入参类型须匹配返回 shape → 加中间 handler 解构再调 prop。`sonner` 有 `toast.success/warning`,Toaster 已在 `__root.tsx` 全局挂载。
+
+**安全(已与产品确认接受)**
+- 公开页 `githubAccount.fetch` 是**无鉴权的 GitHub API 代理/写入端**(CWE-284/306):任何人可探测 PAT 有效性,`github_accounts` 无 `user_id`/归属/限流 —— MVP「公开页、无权限」的有意取舍。日后硬化:加限流 / 鉴权门 / user_id。
+- `apps/server/.env` 含**真实 Neon 凭证 + `neon.new` 认领 URL(2026-07-02 过期)**(CWE-312):已 gitignore,仍属敏感 —— 应在过期前认领/保管该库或轮换密钥。
