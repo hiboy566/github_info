@@ -58,3 +58,17 @@
 **安全(已与产品确认接受)**
 - 公开页 `githubAccount.fetch` 是**无鉴权的 GitHub API 代理/写入端**(CWE-284/306):任何人可探测 PAT 有效性,`github_accounts` 无 `user_id`/归属/限流 —— MVP「公开页、无权限」的有意取舍。日后硬化:加限流 / 鉴权门 / user_id。
 - `apps/server/.env` 含**真实 Neon 凭证 + `neon.new` 认领 URL(2026-07-02 过期)**(CWE-312):已 gitignore,仍属敏感 —— 应在过期前认领/保管该库或轮换密钥。
+
+## 2026-06-30 — schema-field-evolution (Feature 3)
+
+**字段增删的波及面(grep 先行)**
+- 给 github_accounts 增/删一个字段波及 ~7 处:`schema/github-account.ts` → migration → `api/github/client.ts`(zod schema + `GithubAccount` 类型 + 映射,三处)→ `db/queries/github-account.ts`(`GithubAccountInput` 类型 + values + onConflictDoUpdate set,三处)→ `account-card.tsx` 展示 → 各测试 fixture/断言。改前先 `grep -rn <field>` 列全所有点。
+
+**两次迁移(add 与 drop 分开)**
+- 加字段:改 schema → `pnpm db:generate`(0001 `ADD COLUMN`)→ `pnpm db:migrate`。删字段:再改 schema → `db:generate`(0002 `DROP COLUMN`)→ `db:migrate`。drizzle 每次和【上一份 snapshot】比对,所以顺序改两次 = 两个独立迁移(snapshot 链 0000→0001→0002)。
+- **破坏性 `DROP COLUMN` 前先确认行数=0**(用一次性 neon `SELECT count(*)` gate;本表当时空,安全)。有数据时要先备份/确认再删。
+
+**类型 / 细节**
+- GitHub `/user` 含 `twitter_username`(可空)→ zod `z.string().nullable()`(key 必有,GitHub 总返回)。**所有测试 mock/fixture 都要带上该字段**,否则 safeParse 失败。
+- 删字段后,**schema 结构测试里的 `expect(githubAccounts.<field>).toBeDefined()` 也要删**,否则运行时失败(drizzle 表上已删列属性运行时为 `undefined`;注意 tsc **没**报错 —— drizzle 列属性访问类型偏松,别只靠 check-types,要跑测试)。
+- lucide 用 `AtSign` 表示 twitter handle(新版 lucide 移除了 `Twitter` 品牌图标);随 blog 一并删了 `ExternalLink` 与 `normalizeBlogHref`。twitter 链接拼在固定 `https://twitter.com/` 前缀后,无 `javascript:` 注入面。

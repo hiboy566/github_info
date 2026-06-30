@@ -16,9 +16,9 @@ type GithubAccountInput = {
 	avatarUrl: string | null;
 	email: string | null;
 	company: string | null;
-	blog: string | null;
 	location: string | null;
 	bio: string | null;
+	twitterUsername: string | null;
 	publicRepos: number;
 	followers: number;
 	following: number;
@@ -55,9 +55,9 @@ export async function upsertGithubAccount(
 			avatarUrl: account.avatarUrl,
 			email: account.email,
 			company: account.company,
-			blog: account.blog,
 			location: account.location,
 			bio: account.bio,
+			twitterUsername: account.twitterUsername,
 			publicRepos: account.publicRepos,
 			followers: account.followers,
 			following: account.following,
@@ -71,9 +71,9 @@ export async function upsertGithubAccount(
 				avatarUrl: account.avatarUrl,
 				email: account.email,
 				company: account.company,
-				blog: account.blog,
 				location: account.location,
 				bio: account.bio,
+				twitterUsername: account.twitterUsername,
 				publicRepos: account.publicRepos,
 				followers: account.followers,
 				following: account.following,

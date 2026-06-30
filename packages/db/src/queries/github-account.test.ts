@@ -13,7 +13,7 @@ const sampleAccount = {
 	avatarUrl: "https://avatars.github.com/u/12345",
 	email: "test@example.com",
 	company: "Test Corp",
-	blog: "https://blog.test.com",
+	twitterUsername: "testhandle",
 	location: "Test City",
 	bio: "A test user",
 	publicRepos: 42,
@@ -30,7 +30,7 @@ const sampleRow = {
 	avatarUrl: "https://avatars.github.com/u/12345",
 	email: "test@example.com",
 	company: "Test Corp",
-	blog: "https://blog.test.com",
+	twitterUsername: "testhandle",
 	location: "Test City",
 	bio: "A test user",
 	publicRepos: 42,
@@ -53,7 +53,13 @@ function makeDbMock(returnedRows: unknown[]) {
 	const values = vi.fn(() => ({ onConflictDoUpdate }));
 	const insert = vi.fn(() => ({ values }));
 	// biome-ignore lint/suspicious/noExplicitAny: mock db — not a real Drizzle instance
-	return { db: { insert } as any, insert, values, onConflictDoUpdate, returning };
+	return {
+		db: { insert } as any,
+		insert,
+		values,
+		onConflictDoUpdate,
+		returning,
+	};
 }
 
 // ---------------------------------------------------------------------------

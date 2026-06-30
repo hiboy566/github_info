@@ -1,9 +1,9 @@
 import type { GithubAccount } from "@github_info/api/github/client";
 import { cn } from "@github_info/ui/lib/utils";
 import {
+	AtSign,
 	Building2,
 	CalendarDays,
-	ExternalLink,
 	Hash,
 	Mail,
 	MapPin,
@@ -13,11 +13,6 @@ type AccountCardProps = {
 	account: GithubAccount;
 	className?: string;
 };
-
-/** Ensure blog URLs are absolute so the anchor link navigates correctly. */
-function normalizeBlogHref(blog: string): string {
-	return blog.startsWith("http") ? blog : `https://${blog}`;
-}
 
 /**
  * Pure display component that renders a GitHub account information card.
@@ -137,16 +132,17 @@ export function AccountCard({ account, className }: AccountCardProps) {
 							<span>{account.location}</span>
 						</li>
 					)}
-					{account.blog && (
+					{/* Twitter username — added via Drizzle field-evolution demo (PRD §5.4) */}
+					{account.twitterUsername && (
 						<li className="flex items-center gap-2.5">
-							<ExternalLink className="h-4 w-4 shrink-0 text-[#64748B]" />
+							<AtSign className="h-4 w-4 shrink-0 text-[#64748B]" />
 							<a
-								href={normalizeBlogHref(account.blog)}
+								href={`https://twitter.com/${account.twitterUsername}`}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="truncate text-[#059669] hover:underline"
+								className="text-[#059669] hover:underline"
 							>
-								{account.blog}
+								@{account.twitterUsername}
 							</a>
 						</li>
 					)}

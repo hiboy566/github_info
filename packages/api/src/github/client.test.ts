@@ -9,9 +9,9 @@ const mockGithubUserJson = {
 	avatar_url: "https://avatars.githubusercontent.com/u/12345",
 	email: "test@example.com",
 	company: "Test Corp",
-	blog: "https://test.com",
 	location: "Test City",
 	bio: "A test user",
+	twitter_username: "testhandle",
 	public_repos: 42,
 	followers: 100,
 	following: 50,
@@ -56,6 +56,7 @@ describe("fetchGithubUser", () => {
 		expect(account.followers).toBe(100);
 		expect(account.following).toBe(50);
 		expect(account.createdAt).toBe("2020-01-01T00:00:00Z");
+		expect(account.twitterUsername).toBe("testhandle");
 	});
 
 	it("tolerates nullable fields from GitHub API", async () => {
@@ -65,9 +66,9 @@ describe("fetchGithubUser", () => {
 				name: null,
 				email: null,
 				company: null,
-				blog: null,
 				location: null,
 				bio: null,
+				twitter_username: null,
 				avatar_url: null,
 			}),
 		);

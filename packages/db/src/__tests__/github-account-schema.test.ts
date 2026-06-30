@@ -22,9 +22,9 @@ describe("github_accounts schema (T-001 / AC-003)", () => {
 		expect(githubAccounts.avatarUrl).toBeDefined();
 		expect(githubAccounts.email).toBeDefined();
 		expect(githubAccounts.company).toBeDefined();
-		expect(githubAccounts.blog).toBeDefined();
 		expect(githubAccounts.location).toBeDefined();
 		expect(githubAccounts.bio).toBeDefined();
+		expect(githubAccounts.twitterUsername).toBeDefined();
 		expect(githubAccounts.publicRepos).toBeDefined();
 		expect(githubAccounts.followers).toBeDefined();
 		expect(githubAccounts.following).toBeDefined();

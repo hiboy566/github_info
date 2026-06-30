@@ -12,9 +12,9 @@ const githubUserSchema = z.object({
 	avatar_url: z.string().nullable(),
 	email: z.string().nullable(),
 	company: z.string().nullable(),
-	blog: z.string().nullable(),
 	location: z.string().nullable(),
 	bio: z.string().nullable(),
+	twitter_username: z.string().nullable(),
 	public_repos: z.number(),
 	followers: z.number(),
 	following: z.number(),
@@ -28,9 +28,9 @@ export type GithubAccount = {
 	avatarUrl: string | null;
 	email: string | null;
 	company: string | null;
-	blog: string | null;
 	location: string | null;
 	bio: string | null;
+	twitterUsername: string | null;
 	publicRepos: number;
 	followers: number;
 	following: number;
@@ -146,9 +146,9 @@ export async function fetchGithubUser(token: string): Promise<GithubAccount> {
 		avatarUrl: data.avatar_url,
 		email: data.email,
 		company: data.company,
-		blog: data.blog,
 		location: data.location,
 		bio: data.bio,
+		twitterUsername: data.twitter_username,
 		publicRepos: data.public_repos,
 		followers: data.followers,
 		following: data.following,
