@@ -16,22 +16,22 @@
 
 ### 功能 1: GitHub 拉取(服务端)
 
-- [ ] T-001: GitHub API 适配层 `packages/api/src/github/client.ts`:用 PAT 调 `GET /user`,zod 解析为 `GithubAccount`,错误分类(401 invalid / 403 forbidden|rate-limited / 网络 upstream),不日志 token ~30min
-- [ ] T-002: tRPC `githubAccount.fetch`(publicProcedure)`packages/api/src/routers/github-account.ts`:`.input({token})` zod 校验,调适配层,失败转 TRPCError(UNAUTHORIZED / FORBIDDEN / TOO_MANY_REQUESTS / INTERNAL),token 不回包;并入 appRouter ~30min
+- [x] T-001: GitHub API 适配层 `packages/api/src/github/client.ts`:用 PAT 调 `GET /user`,zod 解析为 `GithubAccount`,错误分类(401 invalid / 403 forbidden|rate-limited / 网络 upstream),不日志 token ~30min
+- [x] T-002: tRPC `githubAccount.fetch`(publicProcedure)`packages/api/src/routers/github-account.ts`:`.input({token})` zod 校验,调适配层,失败转 TRPCError(UNAUTHORIZED / FORBIDDEN / TOO_MANY_REQUESTS / INTERNAL),token 不回包;并入 appRouter ~30min
 
 ### 功能 2: 页面与表单(前端)
 
-- [ ] T-003: Fetcher 页面骨架 `apps/web/src/routes/index.tsx`:标题、Token 输入区、状态区、信息区布局,遵循 ui/DESIGN.md(800px 容器 / 8px 栅格) ~30min
-- [ ] T-004: Token 表单组件 `apps/web/src/components/github/token-form.tsx`:react-form + zod,`type="password"` 掩码、非空校验、提交调 `trpc.githubAccount.fetch` mutation、pending 禁用 + loader ~30min
+- [x] T-003: Fetcher 页面骨架 `apps/web/src/routes/index.tsx`:标题、Token 输入区、状态区、信息区布局,遵循 ui/DESIGN.md(800px 容器 / 8px 栅格) ~30min
+- [x] T-004: Token 表单组件 `apps/web/src/components/github/token-form.tsx`:react-form + zod,`type="password"` 掩码、非空校验、提交调 `trpc.githubAccount.fetch` mutation、pending 禁用 + loader ~30min
 
 ### 功能 3: 展示与异常(前端)
 
-- [ ] T-005: 状态 / 错误提示 `apps/web/src/components/github/fetch-status.tsx`:loading 指示 + 按 §8 映射错误文案(空 / 无效 / 权限 / 限流 / 未知) ~15min
-- [ ] T-006: 账户信息卡 `apps/web/src/components/github/account-card.tsx`:头像 / login / name / bio / company / location / blog / public_repos / followers / following / created_at,DESIGN.md 样式(2 列 stats、数字 tabular) ~30min
+- [x] T-005: 状态 / 错误提示 `apps/web/src/components/github/fetch-status.tsx`:loading 指示 + 按 §8 映射错误文案(空 / 无效 / 权限 / 限流 / 未知) ~15min
+- [x] T-006: 账户信息卡 `apps/web/src/components/github/account-card.tsx`:头像 / login / name / bio / company / location / blog / public_repos / followers / following / created_at,DESIGN.md 样式(2 列 stats、数字 tabular) ~30min
 
 ### 集成与测试
 
-- [ ] T-007: 联调:有效 token 展示信息、无效 token 清晰错误、空 token 前端拦截;观测响应 < 3s;确认网络面板 / 日志无完整 token ~30min
+- [x] T-007: 联调:有效 token 展示信息、无效 token 清晰错误、空 token 前端拦截;观测响应 < 3s;确认网络面板 / 日志无完整 token ~30min
 
 ## 依赖关系
 

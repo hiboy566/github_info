@@ -6,7 +6,7 @@
 
 | 序号 | feature | 说明 | 依赖 | 状态 |
 | ---- | ------- | ---- | ---- | ---- |
-| 1 | github-account-fetch | 输入 PAT → 服务端校验并调 GitHub API → 展示账户信息(不落库) | - | 待开发 |
+| 1 | github-account-fetch | 输入 PAT → 服务端校验并调 GitHub API → 展示账户信息(不落库) | - | ✅ 完成 (2026-06-30) |
 | 2 | github-account-persistence | 将拉取到的账户信息落库(Drizzle `github_accounts` + upsert) | 1 | 待开发 |
 | 3 | schema-field-evolution | Drizzle 字段新增(twitter_username)与删除(blog)演示 | 2 | 待开发 |
 
