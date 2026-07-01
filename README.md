@@ -23,18 +23,18 @@
 
 ## 部署架构
 
-1、前端：AWS S3 托管静态页面，对公网访问，代码 push 后自动构建并同步到 S3
+1、前端：AWS S3 静态网站托管，对公网提供访问；push 前端代码时由 GitHub Actions 自动构建并同步部署到 S3
 
-2、后端：API Gateway 对外提供接口，AWS Lambda 在 VPC 私有子网运行 Hono 应用
+2、后端：AWS Lambda 运行 Hono 应用，AWS API Gateway 对外暴露接口；Lambda 部署在 VPC 私有子网，不直接暴露公网；Lambda 执行角色（IAM Role）由 SAM 自动创建，授予 VPC 网络访问权限
 
-3、数据库：Aurora PostgreSQL 部署在私有子网，仅允许 Lambda 和跳板机内网访问
+3、数据库：Aurora PostgreSQL，部署在 VPC 私有子网；通过安全组限制，仅允许来自 Lambda 安全组和跳板机安全组的连接，不对外开放
 
-4、VPC：公有子网放 NAT Gateway 和 SSM 跳板机；私有子网放 Lambda 和数据库，Lambda 通过 NAT 出网
+4、VPC：公有子网部署 NAT Gateway、跳板机（用于本地通过 SSM 隧道连接数据库做数据库迁移）；私有子网部署 Lambda、数据库，两者通过 VPC 内网通信；Lambda 通过 NAT Gateway 访问外网，例如调用 GitHub API
 
 5、CI/CD：
 
-- 后端改动 -> GitHub Actions（OIDC）-> SAM 部署 Lambda
-- 前端改动 -> GitHub Actions -> 构建并同步到 S3
+- 后端改动 -> GitHub Actions 自动构建（OIDC + IAM Role 认证）-> SAM 部署 Lambda
+- 前端改动 -> GitHub Actions 自动构建 -> 部署到 AWS S3 静态网站
 
 ## 当前线上访问地址
 
