@@ -1,11 +1,13 @@
 import { env } from "@github_info/env/server";
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 
 import * as schema from "./schema";
 
 export function createDb() {
-  const sql = neon(env.DATABASE_URL);
+  const sql = postgres(env.DATABASE_URL, {
+    prepare: false,
+  });
   return drizzle(sql, { schema });
 }
 

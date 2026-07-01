@@ -18,9 +18,9 @@
   },
   "dependencies": {
     "@github_info/env": "workspace:*",
-    "@neondatabase/serverless": "^1.0.2",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.7",
     "zod": "catalog:"
   },
   "devDependencies": {

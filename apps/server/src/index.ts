@@ -2,14 +2,17 @@ import { createContext } from "@github_info/api/context";
 import { appRouter } from "@github_info/api/routers/index";
 import { auth } from "@github_info/auth";
 import { env } from "@github_info/env/server";
-import { trpcServer } from "@hono/trpc-server";
+import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { handle } from "hono/aws-lambda";
 
 const app = new Hono();
 
-app.use(logger());
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  app.use(logger());
+}
 app.use(
   "/*",
   cors({
@@ -24,26 +27,31 @@ app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
 app.use(
   "/trpc/*",
-  trpcServer({
+  async (c) =>
+    fetchRequestHandler({
+      endpoint: "/trpc",
+      req: c.req.raw,
     router: appRouter,
-    createContext: (_opts, context) => {
-      return createContext({ context });
-    },
-  }),
+      createContext: () => createContext({ context: c }),
+    }),
 );
 
 app.get("/", (c) => {
   return c.text("OK");
 });
 
-import { serve } from "@hono/node-server";
+export const handler = handle(app);
 
-serve(
-  {
-    fetch: app.fetch,
-    port: 3000,
-  },
-  (info) => {
-    console.log(`Server is running on http://localhost:${info.port}`);
-  },
-);
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  const { serve } = await import("@hono/node-server");
+
+  serve(
+    {
+      fetch: app.fetch,
+      port: 3000,
+    },
+    (info) => {
+      console.log(`Server is running on http://localhost:${info.port}`);
+    },
+  );
+}

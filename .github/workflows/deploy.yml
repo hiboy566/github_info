@@ -1,0 +1,98 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "template.yaml"
+      - "Makefile"
+      - "samconfig.toml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-2
+  STACK_NAME: github-info
+  FRONTEND_BUCKET: github-info-web-956959393973-ap-southeast-2
+  API_URL: https://xl59ygu7th.execute-api.ap-southeast-2.amazonaws.com
+  FRONTEND_ORIGIN: http://github-info-web-956959393973-ap-southeast-2.s3-website-ap-southeast-2.amazonaws.com
+  DATABASE_CLUSTER_IDENTIFIER: database-github-info-sam
+  DATABASE_NAME: database_github_info
+  DATABASE_USER: postgres
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Build backend
+        run: sam build
+
+      - name: Deploy backend
+        run: |
+          sam deploy \
+            --region "$AWS_REGION" \
+            --stack-name "$STACK_NAME" \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              DatabaseClusterIdentifier="$DATABASE_CLUSTER_IDENTIFIER" \
+              DatabaseName="$DATABASE_NAME" \
+              DatabaseUser="$DATABASE_USER" \
+              DatabasePassword="${{ secrets.DB_PASSWORD }}" \
+              BetterAuthSecret="${{ secrets.BETTER_AUTH_SECRET }}" \
+              BetterAuthUrl="$API_URL" \
+              CorsOrigin="$FRONTEND_ORIGIN"
+
+      - name: Build frontend
+        run: pnpm --filter web build
+        env:
+          VITE_SERVER_URL: ${{ env.API_URL }}
+
+      - name: Deploy frontend
+        run: |
+          aws s3 sync apps/web/dist "s3://$FRONTEND_BUCKET" \
+            --delete \
+            --region "$AWS_REGION"
