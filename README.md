@@ -1,127 +1,90 @@
 # github_info
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines React, TanStack Router, Hono, TRPC, and more.
+## 这个项目的功能简述
 
-## Features
+这是一个用于获取并保存 GitHub 个人账户信息的全栈项目。用户在前端输入自己的 GitHub Personal Access Token 后，系统会调用 GitHub API 获取个人资料，并通过后端接口把账号信息保存到 PostgreSQL 数据库中。
 
-- **TypeScript** - For type safety and improved developer experience
-- **TanStack Router** - File-based routing with full type safety
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **Shared UI package** - shadcn/ui primitives live in `packages/ui`
-- **Hono** - Lightweight, performant server framework
-- **tRPC** - End-to-end type-safe APIs
-- **Node.js** - Runtime environment
-- **Drizzle** - TypeScript-first ORM
-- **PostgreSQL** - Database engine
-- **Authentication** - Better-Auth
-- **Biome** - Linting and formatting
-- **Vite+** - Unified Vite toolchain, workspace task runner, linting, and formatting
-- **Husky** - Git hooks for code quality
+项目主要包含：
 
-## Getting Started
+- 前端：React + TanStack Router + Vite
+- 后端：Hono + tRPC，运行在 AWS Lambda
+- 数据库：PostgreSQL，使用 Drizzle ORM 管理数据访问
+- 部署：AWS SAM 管理后端、VPC、数据库和网络资源；GitHub Actions 自动部署
 
-First, install the dependencies:
+## 架构是什么
+
+项目采用前后端分离架构：
+
+- 浏览器访问前端静态页面
+- 前端调用 AWS API Gateway 暴露的后端接口
+- API Gateway 转发请求到 AWS Lambda
+- Lambda 在 VPC 私有子网内访问数据库
+- 数据库不对公网开放，只允许 VPC 内受控访问
+
+## 部署架构
+
+1、前端：AWS S3 静态网站托管，对公网提供访问；push 前端代码时由 GitHub Actions 自动构建并同步部署到 S3
+
+2、后端：AWS Lambda 运行 Hono 应用，AWS API Gateway 对外暴露接口；Lambda 部署在 VPC 私有子网，不直接暴露公网；Lambda 执行角色（IAM Role）由 SAM 自动创建，授予 VPC 网络访问权限
+
+3、数据库：Aurora PostgreSQL，部署在 VPC 私有子网；通过安全组限制，仅允许来自 Lambda 安全组和跳板机安全组的连接，不对外开放
+
+4、VPC：公有子网部署 NAT Gateway、跳板机（用于本地通过 SSM 隧道连接数据库做数据库迁移）；私有子网部署 Lambda、数据库，两者通过 VPC 内网通信；Lambda 通过 NAT Gateway 访问外网，例如调用 GitHub API
+
+5、CI/CD：
+
+- 后端改动 -> GitHub Actions 自动构建（OIDC + IAM Role 认证）-> SAM 部署 Lambda
+- 前端改动 -> GitHub Actions 自动构建 -> 部署到 AWS S3 静态网站
+
+## 当前线上访问地址
+
+- 前端页面：http://github-info-web-956959393973-ap-southeast-2.s3-website-ap-southeast-2.amazonaws.com
+- 后端 API：https://xl59ygu7th.execute-api.ap-southeast-2.amazonaws.com/
+
+## 本地开发
+
+安装依赖：
 
 ```bash
 pnpm install
 ```
 
-## Database Setup
-
-This project uses PostgreSQL with Drizzle ORM.
-
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/server/.env` file with your PostgreSQL connection details.
-
-3. Apply the schema to your database:
-
-```bash
-pnpm run db:push
-```
-
-Then, run the development server:
+启动本地开发环境：
 
 ```bash
 pnpm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser to see the web application.
-The API is running at [http://localhost:3000](http://localhost:3000).
+本地访问：
 
-## UI Customization
+- 前端：http://localhost:5173
+- 后端：http://localhost:3000
 
-React web apps in this stack share shadcn/ui primitives through `packages/ui`.
-
-- Change design tokens and global styles in `packages/ui/src/styles/globals.css`
-- Update shared primitives in `packages/ui/src/components/*`
-- Adjust shadcn aliases or style config in `packages/ui/components.json` and `apps/web/components.json`
-
-### Add more shared components
-
-Run this from the project root to add more primitives to the shared UI package:
+## 常用命令
 
 ```bash
-npx shadcn@latest add accordion dialog popover sheet table -c packages/ui
+pnpm run build
+pnpm run check-types
+pnpm run db:push
+pnpm run db:generate
+pnpm run db:migrate
 ```
 
-Import shared components like this:
+## 项目结构
 
-```tsx
-import { Button } from "@github_info/ui/components/button";
-```
-
-### Add app-specific blocks
-
-If you want to add app-specific blocks instead of shared primitives, run the shadcn CLI from `apps/web`.
-
-## Deployment
-
-### Docker Compose
-
-- Target: web + server
-- Config: `docker-compose.yml` (app Dockerfiles live in `apps/*/Dockerfile`)
-- Build images: pnpm run docker:build
-- Start: pnpm run docker:up
-- Logs: pnpm run docker:logs
-- Stop: pnpm run docker:down
-
-Environment variables are read from each app's `.env` file (baked into web builds for public variables) and overridden in `docker-compose.yml` for container networking.
-
-## Git Hooks and Formatting
-
-- Initialize hooks: `pnpm run prepare`
-- Run checks: `pnpm run check`
-
-## Project Structure
-
-```
+```text
 github_info/
 ├── apps/
-│   ├── web/         # Frontend application (React + TanStack Router)
-│   └── server/      # Backend API (Hono, TRPC)
+│   ├── web/         # 前端应用
+│   └── server/      # 后端 API
 ├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── api/         # API layer / business logic
-│   ├── auth/        # Authentication configuration & logic
-│   └── db/          # Database schema & queries
+│   ├── ui/          # 共享 UI 组件
+│   ├── api/         # API / 业务逻辑
+│   ├── auth/        # 认证配置
+│   └── db/          # 数据库 schema 和查询
+├── template.yaml    # AWS SAM 基础设施和后端部署配置
+├── samconfig.toml   # SAM 部署参数
+└── .github/
+    └── workflows/
+        └── deploy.yml # GitHub Actions 自动部署配置
 ```
-
-## Available Scripts
-
-- `pnpm run dev`: Start all applications in development mode
-- `pnpm run build`: Build all applications
-- `pnpm run dev:web`: Start only the web application
-- `pnpm run dev:server`: Start only the server
-- `pnpm run check-types`: Check TypeScript types across all apps
-- `pnpm run db:push`: Push schema changes to database
-- `pnpm run db:generate`: Generate database client/types
-- `pnpm run db:migrate`: Run database migrations
-- `pnpm run db:studio`: Open database studio UI
-- `pnpm run check`: Run Vite+ format/lint checks and workspace TypeScript checks
-- `pnpm run lint`: Run Vite+ lint checks
-- `pnpm run format`: Run Vite+ formatting
-- `pnpm run staged`: Run Vite+ checks against staged files
-- `pnpm run docker:build`: Build the Docker Compose images
-- `pnpm run docker:up`: Build and start the Docker Compose stack
-- `pnpm run docker:logs`: Tail logs from the Docker Compose stack
-- `pnpm run docker:down`: Stop the Docker Compose stack
