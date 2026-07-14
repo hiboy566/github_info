@@ -34,6 +34,28 @@ wait_for_preview() {
   return 1
 }
 
+remove_failed_creation() {
+  local status
+  status="$(aws cloudformation describe-stacks \
+    --region "$AWS_REGION" \
+    --stack-name "$STACK_NAME" \
+    --query 'Stacks[0].StackStatus' \
+    --output text 2>/dev/null)" || return 0
+
+  if [[ "$status" != "ROLLBACK_COMPLETE" ]]; then
+    return 0
+  fi
+
+  echo "Removing failed preview stack ${STACK_NAME} before retrying"
+  aws cloudformation delete-stack \
+    --region "$AWS_REGION" \
+    --stack-name "$STACK_NAME" \
+    --role-arn "$CFN_EXECUTION_ROLE_ARN"
+  aws cloudformation wait stack-delete-complete \
+    --region "$AWS_REGION" \
+    --stack-name "$STACK_NAME"
+}
+
 deploy_preview() {
   require_environment \
     ECR_REPOSITORY_NAME ECR_REPOSITORY_URI ECS_CLUSTER_ARN \
@@ -71,6 +93,7 @@ deploy_preview() {
   fi
 
   sam build --template-file template.preview.yaml
+  remove_failed_creation
   sam deploy \
     --template-file .aws-sam/build/template.yaml \
     --region "$AWS_REGION" \
