@@ -75,6 +75,12 @@ PORT=3000
 - **VPC**：两个公网子网承载 ALB，其中一个保留 NAT Gateway 和 SSM 跳板机；两个私有子网承载 Fargate、Lambda 和 Aurora。Fargate 通过 NAT 调用 GitHub API。
 - **CI/CD**：push `main` 后自动测试，构建并推送镜像，再由 SAM/CloudFormation 更新基础设施和 ECS Task Definition，最后构建前端、同步 S3 并刷新 CloudFront。
 
+### PR 独立预览环境
+
+同仓库 PR 可通过 GitHub OIDC 启动 AWS CodeBuild。每个 PR 使用独立的 ECS Service、Cloud Map 服务、Lambda/API Gateway、Aurora 逻辑数据库和 Cloudflare Pages 分支地址，同时复用现有 VPC、NAT、ECR、ECS Cluster 与 Aurora 集群。PR 关闭后自动清理 AWS Stack 和对应数据库。
+
+完整配置和运维步骤见 [`docs/pr-preview-environments.md`](docs/pr-preview-environments.md)。
+
 ## 常用命令
 
 ```bash

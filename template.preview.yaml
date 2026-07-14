@@ -1,0 +1,256 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Isolated pull-request preview for the GitHub info Go service on shared AWS infrastructure.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedPattern: "pr-[0-9]+"
+    Description: Stable preview identifier derived from the GitHub pull request number.
+  BackendImageTag:
+    Type: String
+    AllowedPattern: "[0-9a-f]{40}"
+    Description: Immutable Git commit SHA used as the ECR image tag.
+  BackendRepositoryUri:
+    Type: String
+    Description: URI of the shared ECR repository without an image tag.
+  EcsClusterArn:
+    Type: String
+    Description: ARN of the shared ECS cluster.
+  CloudMapNamespaceId:
+    Type: String
+    Description: ID of the shared private Cloud Map namespace.
+  CloudMapNamespaceName:
+    Type: String
+    Default: github-info.local
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet::Id
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet::Id
+  EcsSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  EcsTaskExecutionRoleArn:
+    Type: String
+  EcsTaskRoleArn:
+    Type: String
+  LambdaExecutionRoleArn:
+    Type: String
+  DatabaseEndpoint:
+    Type: String
+  DatabasePasswordSecretArn:
+    Type: String
+  DatabaseUser:
+    Type: String
+    Default: postgres
+  DatabaseName:
+    Type: String
+    AllowedPattern: "[a-z_][a-z0-9_]*"
+    Description: PostgreSQL database dedicated to this pull-request environment.
+  FrontendOrigin:
+    Type: String
+    AllowedPattern: "https://.*"
+    Description: Deterministic Cloudflare Pages branch URL allowed by CORS.
+
+Resources:
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowCredentials: true
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowOrigins:
+          - !Ref FrontendOrigin
+      Tags:
+        Environment: !Ref EnvironmentName
+        Project: github-info
+
+  DiscoveryService:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: !Sub api-${EnvironmentName}
+      Description: !Sub Private discovery for the ${EnvironmentName} Go API.
+      NamespaceId: !Ref CloudMapNamespaceId
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: github-info
+
+  EcsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/github-info-${EnvironmentName}
+      RetentionInDays: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: github-info
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub github-info-${EnvironmentName}
+      Cpu: "256"
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref EcsTaskExecutionRoleArn
+      TaskRoleArn: !Ref EcsTaskRoleArn
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: server
+          Essential: true
+          Image: !Sub ${BackendRepositoryUri}:${BackendImageTag}
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3000"
+            - Name: CORS_ORIGIN
+              Value: !Ref FrontendOrigin
+            - Name: PGHOST
+              Value: !Ref DatabaseEndpoint
+            - Name: PGPORT
+              Value: "5432"
+            - Name: PGDATABASE
+              Value: !Ref DatabaseName
+            - Name: PGUSER
+              Value: !Ref DatabaseUser
+            - Name: PGSSLMODE
+              Value: require
+          Secrets:
+            - Name: PGPASSWORD
+              ValueFrom: !Ref DatabasePasswordSecretArn
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget -qO- http://localhost:3000/ || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+          LinuxParameters:
+            InitProcessEnabled: true
+          StopTimeout: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref EcsLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: server
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: github-info
+
+  EcsService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub github-info-${EnvironmentName}
+      Cluster: !Ref EcsClusterArn
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      PlatformVersion: LATEST
+      EnableECSManagedTags: true
+      PropagateTags: SERVICE
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref EcsSecurityGroupId
+          Subnets:
+            - !Ref PrivateSubnetA
+            - !Ref PrivateSubnetB
+      ServiceRegistries:
+        - RegistryArn: !GetAtt DiscoveryService.Arn
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: github-info
+
+  PreviewFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: EcsService
+    Properties:
+      FunctionName: !Sub github-info-${EnvironmentName}-api
+      CodeUri: apps/server
+      Handler: bootstrap
+      Runtime: provided.al2023
+      Architectures:
+        - arm64
+      Timeout: 30
+      MemorySize: 512
+      Role: !Ref LambdaExecutionRoleArn
+      Environment:
+        Variables:
+          CORS_ORIGIN: !Ref FrontendOrigin
+          INTERNAL_API_URL: !Sub http://api-${EnvironmentName}.${CloudMapNamespaceName}:3000
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroupId
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+        RootApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+      Tags:
+        Environment: !Ref EnvironmentName
+        Project: github-info
+    Metadata:
+      BuildMethod: makefile
+
+Outputs:
+  EnvironmentName:
+    Value: !Ref EnvironmentName
+  ApiUrl:
+    Description: Public HTTPS endpoint used by the Cloudflare Pages preview.
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/
+  CloudMapServiceName:
+    Description: Private DNS name used by Lambda to reach this preview service.
+    Value: !Sub api-${EnvironmentName}.${CloudMapNamespaceName}
+  EcsServiceArn:
+    Value: !Ref EcsService
+  TaskDefinitionArn:
+    Value: !Ref TaskDefinition
+  DatabaseName:
+    Value: !Ref DatabaseName

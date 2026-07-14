@@ -1,0 +1,81 @@
+name: PR preview
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - closed
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-2
+  CODEBUILD_PROJECT: github-info-pr-preview
+  PR_NUMBER: ${{ github.event.pull_request.number }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  preview:
+    name: ${{ github.event.action == 'closed' && 'Remove preview' || 'Deploy preview' }}
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      ACTION: ${{ github.event.action == 'closed' && 'destroy' || 'deploy' }}
+      SOURCE_VERSION: ${{ github.event.action == 'closed' && 'main' || github.event.pull_request.head.sha }}
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_PR_TRIGGER_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Start CodeBuild and wait
+        id: codebuild
+        run: |
+          build_id="$(aws codebuild start-build \
+            --region "$AWS_REGION" \
+            --project-name "$CODEBUILD_PROJECT" \
+            --source-version "$SOURCE_VERSION" \
+            --environment-variables-override \
+              "name=ACTION,value=$ACTION,type=PLAINTEXT" \
+              "name=PR_NUMBER,value=$PR_NUMBER,type=PLAINTEXT" \
+              "name=GIT_SHA,value=$HEAD_SHA,type=PLAINTEXT" \
+            --query 'build.id' \
+            --output text)"
+          test -n "$build_id"
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
+
+          while true; do
+            status="$(aws codebuild batch-get-builds \
+              --region "$AWS_REGION" \
+              --ids "$build_id" \
+              --query 'builds[0].buildStatus' \
+              --output text)"
+            echo "CodeBuild status: $status"
+            case "$status" in
+              SUCCEEDED)
+                break
+                ;;
+              FAILED|FAULT|STOPPED|TIMED_OUT)
+                echo "CodeBuild failed with status $status" >&2
+                exit 1
+                ;;
+            esac
+            sleep 15
+          done
+
+      - name: Publish preview address
+        if: github.event.action != 'closed'
+        run: |
+          preview_url="https://pr-${PR_NUMBER}.${{ vars.CLOUDFLARE_PAGES_PROJECT }}.pages.dev"
+          echo "### PR preview" >> "$GITHUB_STEP_SUMMARY"
+          echo "$preview_url" >> "$GITHUB_STEP_SUMMARY"

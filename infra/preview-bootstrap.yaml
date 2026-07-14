@@ -1,0 +1,474 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CodeBuild and three least-privilege delivery roles for GitHub pull-request previews.
+
+Parameters:
+  GitHubOrganization:
+    Type: String
+    Default: hiboy566
+  GitHubRepository:
+    Type: String
+    Default: github_info
+  GitHubRepositoryUrl:
+    Type: String
+    Default: https://github.com/hiboy566/github_info.git
+  GitHubOidcProviderArn:
+    Type: String
+    Default: arn:aws:iam::956959393973:oidc-provider/token.actions.githubusercontent.com
+  CodeBuildProjectName:
+    Type: String
+    Default: github-info-pr-preview
+  ArtifactBucketName:
+    Type: String
+    Default: github-info-pr-artifacts-956959393973-ap-southeast-2
+  CloudflareAccountId:
+    Type: String
+    AllowedPattern: "[0-9a-f]{32}"
+  CloudflareApiTokenSecretArn:
+    Type: String
+    Description: ARN of an existing Secrets Manager secret whose entire value is a Cloudflare Pages Edit token.
+  CloudflarePagesProject:
+    Type: String
+    Default: github-info-preview
+    AllowedPattern: "[a-z0-9-]+"
+  EcrRepositoryName:
+    Type: String
+    Default: github-info-server
+  EcrRepositoryUri:
+    Type: String
+    Default: 956959393973.dkr.ecr.ap-southeast-2.amazonaws.com/github-info-server
+  EcsClusterArn:
+    Type: String
+    Default: arn:aws:ecs:ap-southeast-2:956959393973:cluster/github-info-cluster
+  CloudMapNamespaceId:
+    Type: String
+    Default: ns-u7p2w5k4rupzhiom
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0034861a5ab386384
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0b5f1b6aa29d28e90
+  EcsSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: sg-0712edc6b1034a94e
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: sg-07c1373a94f345410
+  EcsTaskExecutionRoleArn:
+    Type: String
+    Default: arn:aws:iam::956959393973:role/github-info-EcsTaskExecutionRole-83wAJHxcMhMH
+  EcsTaskRoleArn:
+    Type: String
+    Default: arn:aws:iam::956959393973:role/github-info-EcsTaskRole-zrJDuCyBNhFZ
+  LambdaExecutionRoleArn:
+    Type: String
+    Default: arn:aws:iam::956959393973:role/github-info-GitHubInfoFunctionRole-4AMWiOlD5Ct8
+  DatabaseEndpoint:
+    Type: String
+    Default: database-github-info-sam.cluster-c1u4as8qc0sj.ap-southeast-2.rds.amazonaws.com
+  DatabasePasswordSecretArn:
+    Type: String
+    Default: arn:aws:secretsmanager:ap-southeast-2:956959393973:secret:DatabasePasswordSecret-KL15WeMWqo74-5uyQXh
+
+Resources:
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref ArtifactBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeletePreviewArtifacts
+            Status: Enabled
+            ExpirationInDays: 7
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Project
+          Value: github-info
+        - Key: Purpose
+          Value: pr-preview-artifacts
+
+  TriggerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: github-info-pr-trigger
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrganization}/${GitHubRepository}:pull_request
+      Policies:
+        - PolicyName: StartPreviewBuild
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: codebuild:StartBuild
+                Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${CodeBuildProjectName}
+              - Effect: Allow
+                Action: codebuild:BatchGetBuilds
+                Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:build/${CodeBuildProjectName}:*
+      Tags:
+        - Key: Project
+          Value: github-info
+        - Key: Purpose
+          Value: pr-preview-trigger
+
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: github-info-pr-cloudformation
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ManagePreviewResources
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ManagePreviewEcs
+                Effect: Allow
+                Action:
+                  - ecs:CreateService
+                  - ecs:DeleteService
+                  - ecs:DeregisterTaskDefinition
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - ecs:ListTagsForResource
+                  - ecs:RegisterTaskDefinition
+                  - ecs:TagResource
+                  - ecs:UntagResource
+                  - ecs:UpdateService
+                Resource: "*"
+              - Sid: ManagePreviewDiscovery
+                Effect: Allow
+                Action:
+                  - servicediscovery:CreateService
+                  - servicediscovery:DeleteService
+                  - servicediscovery:GetOperation
+                  - servicediscovery:GetService
+                  - servicediscovery:ListTagsForResource
+                  - servicediscovery:TagResource
+                  - servicediscovery:UntagResource
+                Resource: "*"
+              - Sid: ManagePreviewLambda
+                Effect: Allow
+                Action:
+                  - lambda:AddPermission
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:ListTags
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:github-info-pr-*
+              - Sid: ManagePreviewApiGateway
+                Effect: Allow
+                Action:
+                  - apigateway:DELETE
+                  - apigateway:GET
+                  - apigateway:PATCH
+                  - apigateway:POST
+                  - apigateway:PUT
+                Resource: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}::/*
+              - Sid: ManagePreviewLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:DescribeLogGroups
+                  - logs:ListTagsForResource
+                  - logs:PutRetentionPolicy
+                  - logs:TagResource
+                  - logs:UntagResource
+                Resource: "*"
+              - Sid: InspectSharedNetwork
+                Effect: Allow
+                Action:
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVpcs
+                Resource: "*"
+              - Sid: ReadDeploymentArtifacts
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub ${ArtifactBucket.Arn}/*
+              - Sid: PassRuntimeRoles
+                Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !Ref EcsTaskExecutionRoleArn
+                  - !Ref EcsTaskRoleArn
+                  - !Ref LambdaExecutionRoleArn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService:
+                      - ecs-tasks.amazonaws.com
+                      - lambda.amazonaws.com
+      Tags:
+        - Key: Project
+          Value: github-info
+        - Key: Purpose
+          Value: pr-preview-cloudformation
+
+  CodeBuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/codebuild/github-info-pr-preview
+      RetentionInDays: 7
+      Tags:
+        - Key: Project
+          Value: github-info
+        - Key: Purpose
+          Value: pr-preview
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: github-info-pr-codebuild
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${CodeBuildProjectName}
+      Policies:
+        - PolicyName: BuildAndDeployPreviews
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteBuildLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub ${CodeBuildLogGroup.Arn}:*
+              - Sid: UseArtifactBucket
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource: !GetAtt ArtifactBucket.Arn
+              - Sid: UseArtifactObjects
+                Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub ${ArtifactBucket.Arn}/*
+              - Sid: AuthenticateToEcr
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: PushPreviewImages
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:DescribeImages
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrRepositoryName}
+              - Sid: ManagePreviewStacks
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:ListStackResources
+                  - cloudformation:UpdateStack
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/github-info-pr-*/*
+              - Sid: InspectSamTemplate
+                Effect: Allow
+                Action: cloudformation:GetTemplateSummary
+                Resource: "*"
+              - Sid: PassCloudFormationRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CloudFormationExecutionRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: cloudformation.amazonaws.com
+              - Sid: OperateCleanupTasks
+                Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTasks
+                  - ecs:RunTask
+                  - ecs:UpdateService
+                Resource: "*"
+              - Sid: PassCleanupTaskRoles
+                Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !Ref EcsTaskExecutionRoleArn
+                  - !Ref EcsTaskRoleArn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ecs-tasks.amazonaws.com
+              - Sid: ReadCloudflareToken
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref CloudflareApiTokenSecretArn
+      Tags:
+        - Key: Project
+          Value: github-info
+        - Key: Purpose
+          Value: pr-preview-codebuild
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref CodeBuildProjectName
+      Description: Build and dispose isolated Go pull-request preview environments.
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        Type: GITHUB
+        Location: !Ref GitHubRepositoryUrl
+        GitCloneDepth: 1
+        BuildSpec: buildspec.preview.yml
+        ReportBuildStatus: false
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:8.0
+        ImagePullCredentialsType: CODEBUILD
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: AWS_REGION
+            Type: PLAINTEXT
+            Value: !Ref AWS::Region
+          - Name: ECR_REPOSITORY_NAME
+            Type: PLAINTEXT
+            Value: !Ref EcrRepositoryName
+          - Name: ECR_REPOSITORY_URI
+            Type: PLAINTEXT
+            Value: !Ref EcrRepositoryUri
+          - Name: ECS_CLUSTER_ARN
+            Type: PLAINTEXT
+            Value: !Ref EcsClusterArn
+          - Name: CLOUD_MAP_NAMESPACE_ID
+            Type: PLAINTEXT
+            Value: !Ref CloudMapNamespaceId
+          - Name: PRIVATE_SUBNET_A
+            Type: PLAINTEXT
+            Value: !Ref PrivateSubnetA
+          - Name: PRIVATE_SUBNET_B
+            Type: PLAINTEXT
+            Value: !Ref PrivateSubnetB
+          - Name: ECS_SECURITY_GROUP_ID
+            Type: PLAINTEXT
+            Value: !Ref EcsSecurityGroupId
+          - Name: LAMBDA_SECURITY_GROUP_ID
+            Type: PLAINTEXT
+            Value: !Ref LambdaSecurityGroupId
+          - Name: ECS_TASK_EXECUTION_ROLE_ARN
+            Type: PLAINTEXT
+            Value: !Ref EcsTaskExecutionRoleArn
+          - Name: ECS_TASK_ROLE_ARN
+            Type: PLAINTEXT
+            Value: !Ref EcsTaskRoleArn
+          - Name: LAMBDA_EXECUTION_ROLE_ARN
+            Type: PLAINTEXT
+            Value: !Ref LambdaExecutionRoleArn
+          - Name: DATABASE_ENDPOINT
+            Type: PLAINTEXT
+            Value: !Ref DatabaseEndpoint
+          - Name: DATABASE_PASSWORD_SECRET_ARN
+            Type: PLAINTEXT
+            Value: !Ref DatabasePasswordSecretArn
+          - Name: SAM_ARTIFACT_BUCKET
+            Type: PLAINTEXT
+            Value: !Ref ArtifactBucket
+          - Name: CFN_EXECUTION_ROLE_ARN
+            Type: PLAINTEXT
+            Value: !GetAtt CloudFormationExecutionRole.Arn
+          - Name: CLOUDFLARE_ACCOUNT_ID
+            Type: PLAINTEXT
+            Value: !Ref CloudflareAccountId
+          - Name: CLOUDFLARE_API_TOKEN
+            Type: SECRETS_MANAGER
+            Value: !Ref CloudflareApiTokenSecretArn
+          - Name: CLOUDFLARE_PAGES_PROJECT
+            Type: PLAINTEXT
+            Value: !Ref CloudflarePagesProject
+      Cache:
+        Type: LOCAL
+        Modes:
+          - LOCAL_DOCKER_LAYER_CACHE
+          - LOCAL_SOURCE_CACHE
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref CodeBuildLogGroup
+          StreamName: preview
+      QueuedTimeoutInMinutes: 30
+      TimeoutInMinutes: 45
+      Tags:
+        - Key: Project
+          Value: github-info
+        - Key: Purpose
+          Value: pr-preview
+
+Outputs:
+  TriggerRoleArn:
+    Description: Store this value as the GitHub Actions variable AWS_PR_TRIGGER_ROLE_ARN.
+    Value: !GetAtt TriggerRole.Arn
+  CodeBuildProjectName:
+    Value: !Ref CodeBuildProject
+  CloudFormationExecutionRoleArn:
+    Value: !GetAtt CloudFormationExecutionRole.Arn
+  CloudflareApiTokenSecretArn:
+    Value: !Ref CloudflareApiTokenSecretArn
+  ArtifactBucketName:
+    Value: !Ref ArtifactBucket
+  CloudflarePagesProject:
+    Description: Store this value as the GitHub Actions variable CLOUDFLARE_PAGES_PROJECT.
+    Value: !Ref CloudflarePagesProject

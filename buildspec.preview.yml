@@ -1,0 +1,16 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  install:
+    runtime-versions:
+      golang: 1.26
+      nodejs: 22
+    commands:
+      - npm install --global pnpm@11.7.0 wrangler@4
+      - python3 -m pip install --quiet aws-sam-cli
+  build:
+    commands:
+      - bash scripts/pr-preview.sh
