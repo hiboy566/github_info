@@ -1,29 +1,28 @@
 ---
-description: apps/server + packages/api 服务端规范 —— Hono / tRPC / GitHub API(github_info)
+description: apps/server 服务端规范 —— Go net/http / REST / GitHub API(github_info)
 ---
 
-# 后端 / API 规范
+# 后端 / API 规范(apps/server,Go)
 
-## 分层
-- **`apps/server`** 只做传输层:Hono 应用、CORS、挂载 auth handler 与 tRPC,`@hono/node-server` 启动(:3000)。业务逻辑不写这里。
-- **`packages/api`** 是 tRPC 核心:
-  - `context.ts` —— 从 better-auth 取 `session`(`auth.api.getSession({ headers })`)。
-  - `index.ts` —— `t`、`router`、`publicProcedure`、`protectedProcedure`。
-  - `routers/**` —— 业务路由,合成 `appRouter` 并导出 `AppRouter` 类型(供 web 端到端推断)。
+## 分层(单 package main)
+- `main.go` —— 装配:.env 加载、`ConnectProfileStore`、路由注册(`net/http` method 路由)、CORS、请求日志、**Lambda/本地双模式**(`AWS_LAMBDA_FUNCTION_NAME` 存在 → `lambda.Start(httpadapter.NewV2(handler).ProxyWithContext)`,HTTP API payload v2;否则 `ListenAndServe`)。业务逻辑不写这里。
+- `github.go` —— GitHub API 客户端:`GithubAccount`(前后端数据契约)、`GithubClientError`(域错误码)、`FetchUser`。
+- `profiles.go` —— personal_info 数据访问 + 自动建库引导(见 `@rules/database.md`)。
+- `handlers.go` —— HTTP handler:解析输入 → 调 client/store → `writeJSON`/`writeError`;fetch 成功后写 `personal_profiles`,保存失败 `saved=false` 并记日志(不阻塞返回)。
+- `Makefile` —— `sam build` 的构建目标(交叉编译 linux/arm64 静态 `bootstrap`);SAM 的 `CodeUri: apps/server`。
 
-## Procedure
-- 需登录的接口一律用 **`protectedProcedure`**(`ctx.session` 为空时已抛 `TRPCError({ code:"UNAUTHORIZED" })`);公开接口用 `publicProcedure`。勿在业务里自行解析 cookie 判断登录。
-- 所有输入用 **zod** `.input(z.object({...}))` 校验后再用。
-- 错误抛 `TRPCError`,选准 `code`(`UNAUTHORIZED` / `BAD_REQUEST` / `NOT_FOUND` / `TOO_MANY_REQUESTS` / `INTERNAL_SERVER_ERROR`);`message` 面向前端、可读,敏感细节放 `cause` 或服务端日志。
-- 新增路由:在 `routers/` 下建文件,并入 `appRouter`;类型会自动经 `AppRouter` 传到前端,无需手写接口类型。
+## 路由与错误
+- 路由用 Go 1.22+ pattern:`GET /{$}`(精确根路径)、`POST /api/github-account/fetch`、`GET /api/intro/{login}`(`r.PathValue("login")`,读 personal_info)。
+- 错误响应统一 `writeError(w, status, code, message)` → `{"error":{"code","message"}}`;code 沿用旧 tRPC 码(`UNAUTHORIZED`/`FORBIDDEN`/`TOO_MANY_REQUESTS`/`NOT_FOUND`/`BAD_REQUEST`/`INTERNAL_SERVER_ERROR`),前端 `getErrorMessage` 按 code 映射中文文案,新增错误须两端同步。
+- `GithubClientError.Code` → HTTP 状态的映射集中在 `githubErrorStatus`,别在 handler 里散写。
+- message 面向前端、可读;内部细节只进服务端日志(`log.Printf`),**日志与错误信息里绝不出现 token**。
 
-## Hono 装配(`apps/server/src/index.ts`)
-- auth:`app.on(["POST","GET"], "/api/auth/*", c => auth.handler(c.req.raw))`。
-- tRPC:`/trpc/*` 经 `trpcServer({ router: appRouter, createContext })`。
-- CORS:origin = `env.CORS_ORIGIN`、`credentials:true`、显式 `allowMethods`/`allowHeaders`;新增跨域需求改这里(别放通配)。
-- 环境变量只经 `@github_info/env/server`(zod 校验),**勿裸读 `process.env`**。
+## 装配约定
+- CORS:白名单来自 env `CORS_ORIGIN`(逗号分隔),`withCORS` 中间件统一处理(含 OPTIONS 预检);新增来源改 env,别放通配。
+- 环境变量:`loadDotEnv(".env")` 后由 `databaseConfigFromEnv` / `envOr` 读取;本地数据库用 `DATABASE_URL`,Lambda 用 pgx 原生 `PG*` 变量,新增变量需同步 README 与部署模板。
+- 请求体一律 `http.MaxBytesReader` 限长后再 decode;入库/外呼分别用带超时的 context。
 
 ## GitHub API 集成(本产品核心)
-- 用用户提交的 PAT 调 GitHub REST(如 `GET https://api.github.com/user`)的逻辑**只放服务端 procedure**,前端**绝不直连**(避免 token 暴露与 CORS)。
-- 对失败分类给明确错误:401 token 无效、403 权限不足 / 触发 rate-limit(读 `x-ratelimit-*` 头)、网络/超时。
-- PAT 不写日志、不回包、不进错误 message(见 `@rules/security.md`)。
+- 用用户提交的 PAT 调 GitHub REST 的逻辑**只放服务端**(`github.go`),前端**绝不直连**。
+- 外呼超时 10s(`http.Client{Timeout}`,CWE-400);失败分类:401 → invalid-token、403+`x-ratelimit-remaining: 0` → rate-limited、403 → forbidden、其余 → upstream-error。
+- 改 `GithubAccount` 字段时,同步改:`githubUser`(snake_case tag)→ 映射 → `profiles.go`(schema/upsert/select/scan)→ `apps/web/src/lib/api.ts` 类型 → 前端展示组件。

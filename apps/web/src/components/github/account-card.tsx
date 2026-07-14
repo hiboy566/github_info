@@ -1,4 +1,3 @@
-import type { GithubAccount } from "@github_info/api/github/client";
 import { cn } from "@github_info/ui/lib/utils";
 import {
 	AtSign,
@@ -8,6 +7,7 @@ import {
 	Mail,
 	MapPin,
 } from "lucide-react";
+import type { GithubAccount } from "@/lib/api";
 
 type AccountCardProps = {
 	account: GithubAccount;

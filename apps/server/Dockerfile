@@ -1,16 +1,12 @@
-FROM node:24-slim AS base
-RUN npm install -g pnpm
-WORKDIR /app
-ENV SKIP_ENV_VALIDATION=1
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY apps/server/go.mod apps/server/go.sum ./
+RUN go mod download
+COPY apps/server/ ./
+RUN CGO_ENABLED=0 go build -o /bin/server .
 
-COPY . .
-RUN --mount=type=cache,target=/pnpm-store pnpm install --store-dir /pnpm-store
-
-ENV NODE_ENV=production
-RUN cd apps/server && pnpm run build
-ENV SKIP_ENV_VALIDATION=
-
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates wget
+COPY --from=build /bin/server /usr/local/bin/server
 EXPOSE 3000
-
-WORKDIR /app/apps/server
-CMD ["node", "dist/index.mjs"]
+CMD ["server"]

@@ -1,25 +1,25 @@
-import type { GithubAccount } from "@github_info/api/github/client";
 import { Button } from "@github_info/ui/components/button";
 import { Input } from "@github_info/ui/components/input";
 import { Label } from "@github_info/ui/components/label";
 import { useForm } from "@tanstack/react-form";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
+import { useRef } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
-import { trpc } from "@/utils/trpc";
-import { getErrorMessage } from "./fetch-status";
+import type { GithubAccount } from "@/lib/api";
+import { fetchGithubAccount, getErrorMessage } from "@/lib/api";
 
 export interface TokenFormProps {
 	/** Called with the fetched account after a successful mutation. */
-	onSuccess: (account: GithubAccount) => void;
+	onSuccess: (account: GithubAccount, saved: boolean) => void;
 	/** Called just before a new fetch starts so the parent can clear stale state. */
 	onBeforeSubmit?: () => void;
 }
 
 const tokenSchema = z.object({
-	token: z.string().min(1, "请输入 Token"),
+	token: z.string().trim().min(1, "请输入 Token").max(1024, "Token 长度不合法"),
 });
 
 /**
@@ -28,14 +28,21 @@ const tokenSchema = z.object({
  * Security invariants (security.md):
  *  - Input is always type="password" to mask the token.
  *  - Token is never written to localStorage or any persistent storage.
- *  - The mutation is not cached; the token lives only for the duration
- *    of the single server round-trip.
+ *  - The mutation receives no variables, so the token is never retained in
+ *    TanStack Query's mutation cache. A ref holds it only for the request.
  */
 export default function TokenForm({
 	onSuccess,
 	onBeforeSubmit,
 }: TokenFormProps) {
-	const mutation = useMutation(trpc.githubAccount.fetch.mutationOptions());
+	const tokenRef = useRef("");
+	const mutation = useMutation({
+		mutationFn: () => fetchGithubAccount(tokenRef.current),
+		gcTime: 0,
+		onSettled: () => {
+			tokenRef.current = "";
+		},
+	});
 
 	const form = useForm({
 		defaultValues: {
@@ -46,21 +53,22 @@ export default function TokenForm({
 			onBeforeSubmit?.();
 			// Reset any previous mutation state before a new attempt.
 			mutation.reset();
-			mutation.mutate(
-				{ token: value.token },
-				{
-					onSuccess: ({ account, saved }) => {
-						if (saved) {
-							toast.success("已保存");
-						} else {
-							toast.warning("账户信息获取成功，但保存失败");
-						}
-						// Pass only the account up to the parent; saved state is
-						// surfaced via toast and must not block AccountCard display.
-						onSuccess(account);
-					},
+			tokenRef.current = value.token.trim();
+			// Clear the visible field before the request leaves the browser. The
+			// short-lived ref is wiped in the mutation's onSettled callback.
+			form.reset();
+			mutation.mutate(undefined, {
+				onSuccess: ({ account, saved }) => {
+					if (saved) {
+						toast.success("已保存");
+					} else {
+						toast.warning("账户信息获取成功，但保存失败");
+					}
+					// Pass only the account up to the parent; saved state is
+					// surfaced via toast and must not block AccountCard display.
+					onSuccess(account, saved);
 				},
-			);
+			});
 		},
 		validators: {
 			onSubmit: tokenSchema,

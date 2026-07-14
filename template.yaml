@@ -10,7 +10,7 @@ Parameters:
   DatabaseName:
     Type: String
     Default: database_github_info
-    Description: Aurora PostgreSQL database name. Hyphens are not valid in PostgreSQL database identifiers.
+    Description: Aurora cluster initial database (immutable cluster property; not used by the app, which lives in PersonalDatabaseName).
   DatabaseUser:
     Type: String
     Default: postgres
@@ -18,33 +18,32 @@ Parameters:
     Type: String
     NoEcho: true
     MinLength: 8
-  BetterAuthSecret:
+  PersonalDatabaseName:
     Type: String
-    NoEcho: true
-    MinLength: 32
-  CorsOrigin:
+    Default: personal_info
+    AllowedPattern: "[a-z_][a-z0-9_]*"
+    Description: Logical database for personal-introduction data. Created automatically by the Go server on startup if missing.
+  FrontendBucketName:
     Type: String
-    Default: http://localhost:5173
-  BetterAuthUrl:
-    Type: String
-    Default: http://localhost:3000
+    Default: github-info-web-956959393973-ap-southeast-2
+    Description: Existing S3 website bucket served to users through CloudFront HTTPS.
 
 Globals:
   Function:
-    Runtime: nodejs22.x
+    Runtime: provided.al2023
     Architectures:
       - arm64
     Timeout: 30
     MemorySize: 512
     Environment:
       Variables:
-        NODE_ENV: production
-        BETTER_AUTH_SECRET: !Ref BetterAuthSecret
-        BETTER_AUTH_URL: !Ref BetterAuthUrl
-        CORS_ORIGIN: !Ref CorsOrigin
-        DATABASE_URL: !Sub
-          - postgresql://${DatabaseUser}:${DatabasePassword}@${Endpoint}:5432/${DatabaseName}?sslmode=require
-          - Endpoint: !GetAtt DatabaseCluster.Endpoint.Address
+        CORS_ORIGIN: !Sub https://${FrontendDistribution.DomainName}
+        PGHOST: !GetAtt DatabaseCluster.Endpoint.Address
+        PGPORT: "5432"
+        PGDATABASE: !Ref PersonalDatabaseName
+        PGUSER: !Ref DatabaseUser
+        PGPASSWORD: !Ref DatabasePassword
+        PGSSLMODE: require
 
 Resources:
   HttpApi:
@@ -60,13 +59,55 @@ Resources:
           - POST
           - OPTIONS
         AllowOrigins:
-          - !Ref CorsOrigin
+          - !Sub https://${FrontendDistribution.DomainName}
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: HTTPS frontend for the GitHub token form.
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Origins:
+          - Id: FrontendS3Website
+            DomainName: !Sub ${FrontendBucketName}.s3-website-${AWS::Region}.amazonaws.com
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          TargetOriginId: FrontendS3Website
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
 
   GitHubInfoFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: .
-      Handler: index.handler
+      CodeUri: apps/server
+      Handler: bootstrap
       VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
@@ -313,3 +354,9 @@ Outputs:
   BastionInstanceId:
     Description: SSM bastion instance id for local database migration tunnels.
     Value: !Ref BastionHost
+  FrontendUrl:
+    Description: HTTPS URL for the frontend.
+    Value: !Sub https://${FrontendDistribution.DomainName}
+  FrontendDistributionId:
+    Description: CloudFront distribution ID used for cache invalidation.
+    Value: !Ref FrontendDistribution

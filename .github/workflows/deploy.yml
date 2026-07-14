@@ -8,7 +8,6 @@ on:
       - "apps/**"
       - "packages/**"
       - "template.yaml"
-      - "Makefile"
       - "samconfig.toml"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -29,7 +28,6 @@ env:
   STACK_NAME: github-info
   FRONTEND_BUCKET: github-info-web-956959393973-ap-southeast-2
   API_URL: https://xl59ygu7th.execute-api.ap-southeast-2.amazonaws.com
-  FRONTEND_ORIGIN: http://github-info-web-956959393973-ap-southeast-2.s3-website-ap-southeast-2.amazonaws.com
   DATABASE_CLUSTER_IDENTIFIER: database-github-info-sam
   DATABASE_NAME: database_github_info
   DATABASE_USER: postgres
@@ -54,8 +52,22 @@ jobs:
         with:
           version: 11.7.0
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Check types and production builds
+        run: pnpm run check-types
+        env:
+          VITE_SERVER_URL: ${{ env.API_URL }}
+
+      - name: Test backend
+        run: go -C apps/server test ./...
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
@@ -70,6 +82,8 @@ jobs:
         run: sam build
 
       - name: Deploy backend
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
           sam deploy \
             --region "$AWS_REGION" \
@@ -82,10 +96,19 @@ jobs:
               DatabaseClusterIdentifier="$DATABASE_CLUSTER_IDENTIFIER" \
               DatabaseName="$DATABASE_NAME" \
               DatabaseUser="$DATABASE_USER" \
-              DatabasePassword="${{ secrets.DB_PASSWORD }}" \
-              BetterAuthSecret="${{ secrets.BETTER_AUTH_SECRET }}" \
-              BetterAuthUrl="$API_URL" \
-              CorsOrigin="$FRONTEND_ORIGIN"
+              DatabasePassword="$DB_PASSWORD" \
+              FrontendBucketName="$FRONTEND_BUCKET"
+
+      - name: Resolve frontend distribution
+        id: frontend
+        run: |
+          distribution_id="$(aws cloudformation describe-stacks \
+            --region "$AWS_REGION" \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='FrontendDistributionId'].OutputValue" \
+            --output text)"
+          test -n "$distribution_id"
+          echo "distribution_id=$distribution_id" >> "$GITHUB_OUTPUT"
 
       - name: Build frontend
         run: pnpm --filter web build
@@ -97,3 +120,11 @@ jobs:
           aws s3 sync apps/web/dist "s3://$FRONTEND_BUCKET" \
             --delete \
             --region "$AWS_REGION"
+
+      - name: Refresh frontend cache
+        env:
+          DISTRIBUTION_ID: ${{ steps.frontend.outputs.distribution_id }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "$DISTRIBUTION_ID" \
+            --paths "/*"

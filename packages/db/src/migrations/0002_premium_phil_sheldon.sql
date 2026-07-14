@@ -1,1 +1,0 @@
-ALTER TABLE "github_accounts" DROP COLUMN "blog";

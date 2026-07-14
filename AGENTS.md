@@ -72,3 +72,44 @@
 - GitHub `/user` 含 `twitter_username`(可空)→ zod `z.string().nullable()`(key 必有,GitHub 总返回)。**所有测试 mock/fixture 都要带上该字段**,否则 safeParse 失败。
 - 删字段后,**schema 结构测试里的 `expect(githubAccounts.<field>).toBeDefined()` 也要删**,否则运行时失败(drizzle 表上已删列属性运行时为 `undefined`;注意 tsc **没**报错 —— drizzle 列属性访问类型偏松,别只靠 check-types,要跑测试)。
 - lucide 用 `AtSign` 表示 twitter handle(新版 lucide 移除了 `Twitter` 品牌图标);随 blog 一并删了 `ExternalLink` 与 `normalizeBlogHref`。twitter 链接拼在固定 `https://twitter.com/` 前缀后,无 `javascript:` 注入面。
+
+## 2026-07-13 — Node → Go 后端迁移 + 个人介绍页(Feature 4)
+
+**架构决策**
+- 后端整体从 Hono+tRPC+Drizzle+Neon 换成 **Go(net/http + pgx v5)+ 本地 PostgreSQL**(Homebrew postgresql@17,库 `github_info`);`packages/api`、`packages/db`、`packages/auth` 连同前端 login/dashboard/better-auth 脚手架一并删除(产品本就是公开无鉴权 MVP)。
+- tRPC 端到端类型没了 → 数据契约靠约定:Go 结构体 json tag(camelCase)= `web/src/lib/api.ts` 的 `GithubAccount`;错误 JSON `{"error":{code,message}}`,code 沿用旧 tRPC 码,前端 `getErrorMessage` 按 code 映射中文。**改字段要 Go/TS 两边同步**。
+- schema 由 `store.go` 的 `CREATE TABLE IF NOT EXISTS` 幂等保证(结构与旧 drizzle 迁移一致);**已存在的表加字段需手写一次性 ALTER TABLE**(IF NOT EXISTS 不管列)。
+- `apps/server/package.json` 保留薄壳(dev=`go run .` / build=`go build` / check-types=`go vet`),让 `vp run -r` 的 dev/build/check-types 继续统管 Go;根脚本 `dev:server` = `go -C apps/server run .`。
+- SAM / GitHub Actions / Makefile 仍是 Node Lambda 版,**未迁移**(cloud 部署当前不可用,push main 会挂 CI);docker-compose server 已换 Go 镜像 + `host.docker.internal` 连宿主 PG。
+
+**踩坑/细节**
+- web dev 端口是 **3001**(vite.config 明确设了;README 旧文写 5173 是错的),Go CORS 默认白名单 `http://localhost:3001`。
+- 旧 `apps/server/.env` 的 Neon 凭证已随迁移废弃(claim URL 2026-07-02 已过期);新 .env 只有 DATABASE_URL / CORS_ORIGIN / PORT。
+- pgx `timestamp`(无时区)scan 回 time.Time 后 `.UTC().Format(RFC3339)` 与 GitHub ISO 字符串往返一致(store_test.go 有断言);可空列 scan 用指针(`*string`/`*time.Time`)。
+- 前端 `useMutation({ mutationFn: fetchGithubAccount })` 单参 token string,`mutate(value.token, {onSuccess})` 回调 shape(`{account,saved}`)不变。
+- 个人介绍页 `/intro/$login`:GET `/api/github-account/:login`(大小写不敏感)读库生成;首页 fetch 成功后出现入口链接;未入库时 404 → 引导回首页。
+- 本地库已预置 hiboy566 公开资料(GitHub 公开 API 无需 token,但 email/name 为空);真实 PAT 全流程未实测(无 token),invalid-token→401 路径已实测打通真实 GitHub API。
+
+## 2026-07-13 — SAM/CI 迁移 Go + personal_info 独立库(Feature 5)
+
+**部署迁移(Node Lambda → Go Lambda)**
+- template.yaml:`Runtime: provided.al2023` + arm64,`Handler: bootstrap`;删 BetterAuthSecret/BetterAuthUrl 参数与 NODE_ENV/BETTER_AUTH_* env;CI 的 sam deploy 参数同步删(仓库 secrets 里 BETTER_AUTH_SECRET 可删)。
+- **CodeUri 必须收窄到 `apps/server`**:`CodeUri: .` 会让 SAM CopySource 拷整个 monorepo,node_modules 里的悬空 pnpm 软链(已删 workspace 包残留)直接报 `No such file or directory` 拒绝构建。Makefile 也随之挪到 `apps/server/Makefile`(BuildMethod: makefile 在 CodeUri 内找 Makefile),根 Makefile 已删。
+- 构建目标:`CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -tags lambda.norpc -o "$(ARTIFACTS_DIR)/bootstrap" .`;产物 zip 只含 bootstrap(CodeUri 里的 .env 只进 build 暂存目录、不进 zip)。本地 `sam validate` + `sam build` 已实测通过(14MB 静态 ELF)。
+- Lambda 双模式与旧 Node 同套路:`AWS_LAMBDA_FUNCTION_NAME` 存在 → `lambda.Start(httpadapter.NewV2(handler).ProxyWithContext)`(aws-lambda-go + aws-lambda-go-api-proxy,HTTP API payload v2);loadDotEnv 不覆盖已有 env,Lambda 环境变量优先。
+- deploy.yml 增加 actions/setup-go(go-version-file 指 go.mod,cache-dependency-path 指 go.sum);`sam validate --lint` 会对"密码走 CFN 参数"报 W1011(旧模板同款写法,CI 不跑 lint,遗留债)。
+
+**personal_info 独立库(个人信息不用默认库、不混主库)**
+- 双库双池:`github_info`.`github_accounts`(store.go,冲突键 github_id)+ `personal_info`.`personal_profiles`(profiles.go,冲突键 login,介绍页按用户名寻址)。
+- `connectStores` 启动顺序:连主库 → `ensureDatabase`(pg_database 查存在,不存在则 `CREATE DATABASE`;库名过 `^[a-z_][a-z0-9_]*$` 白名单,因 CREATE DATABASE 不能参数化)→ 连 personal 库。本地/Aurora 全自动,免手工 createdb personal_info;Aurora master 有 CREATEDB 权限。
+- fetch 成功后双写,任一失败 saved=false(前端 toast 警告);`GET /api/github-account/{login}` 已下线,换 `GET /api/intro/{login}`(前端 api.ts 同步改 getPersonalIntro)。
+- 库名从连接串解析用 `pgxpool.ParseConfig(...).ConnConfig.Database`,别手拆 URL。
+
+## 2026-07-13 — 收敛为单库 personal_info(Feature 6)
+
+**决策**
+- 本地删除 `github_info` 与默认 `postgres` 库(后者要 `DROP DATABASE postgres WITH (FORCE)`,Navicat 的活动连接会占着它),全项目只剩 `personal_info`.`personal_profiles`;store.go/github_accounts 及双写逻辑删除,fetch 只写 personal_profiles。
+- 本地 env 收敛为单个 `DATABASE_URL`(指向 personal_info);Lambda 改用 pgx 原生 `PGHOST` / `PGUSER` / `PGPASSWORD` / `PGDATABASE` 变量,避免把含特殊字符的密码拼进 URL;`DatabaseName` 参数保留(Aurora 集群初始库,不可变属性,应用不用)。
+- **建库引导改走 `template1`**:`ConnectProfileStore` 直连目标库,报 SQLSTATE 3D000 → 连 template1 → `ensureDatabase` → 重连。之前"经主库引导"的前提(主库存在)已不成立;template1 是 PG 必有库,本地全新机器和全新 Aurora 都能自举。判断缺库用 `errors.As(&pgconn.PgError)` + code 3D000,别做字符串匹配。
+- 默认 `postgres` 库删了的副作用:psql/GUI 的"默认连接库"没了 —— psql 一律 `-d personal_info`,Navicat 连接的"初始数据库"也要改成 personal_info;需要恢复默认库随时 `createdb postgres`(经 template1:`psql -d template1 -c 'CREATE DATABASE postgres'`)。
+- 测试:bootstrap 用一次性 `personal_info_bootstrap_test` 库验证 3D000 自举路径,清理用 `DROP DATABASE IF EXISTS ... WITH (FORCE)`。

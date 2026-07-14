@@ -1,32 +1,15 @@
 import { Link } from "@tanstack/react-router";
 
-import { ModeToggle } from "./mode-toggle";
-import UserMenu from "./user-menu";
-
 export default function Header() {
-  const links = [
-    { to: "/", label: "Home" },
-    { to: "/dashboard", label: "Dashboard" },
-  ] as const;
-
-  return (
-    <div>
-      <div className="flex flex-row items-center justify-between px-2 py-1">
-        <nav className="flex gap-4 text-lg">
-          {links.map(({ to, label }) => {
-            return (
-              <Link key={to} to={to}>
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="flex items-center gap-2">
-          <ModeToggle />
-          <UserMenu />
-        </div>
-      </div>
-      <hr />
-    </div>
-  );
+	return (
+		<header className="border-[#E2E8F0] border-b bg-white">
+			<div className="mx-auto flex w-full max-w-[800px] items-center px-4 py-3 sm:px-6">
+				<nav aria-label="主导航">
+					<Link to="/" className="font-semibold text-[#0F172A] text-sm">
+						github_info
+					</Link>
+				</nav>
+			</div>
+		</header>
+	);
 }

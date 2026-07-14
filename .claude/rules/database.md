@@ -1,26 +1,27 @@
 ---
-description: packages/db 数据库规范 —— Drizzle ORM + Neon Postgres(github_info)
+description: apps/server/store.go 数据库规范 —— Go pgx + 本地 PostgreSQL(github_info)
 ---
 
-# 数据库规范(packages/db)
+# 数据库规范(apps/server/profiles.go,Go + pgx)
 
-## 客户端与驱动
-- Drizzle + **Neon serverless HTTP**(`drizzle-orm/neon-http` + `@neondatabase/serverless`);经 `createDb()` 建实例,连接串取 `env.DATABASE_URL`(见 `src/index.ts`)。勿在别处另建连接。
-- schema 经 `src/schema/index.ts` 桶导出;新表建 `src/schema/<name>.ts` 后 `export * from "./<name>"` 并入 barrel。
+## 唯一数据库 personal_info(默认 postgres 库已删除)
+- **`personal_info`**(env `DATABASE_URL`)→ 表 `personal_profiles`,代码在 `profiles.go`(`ProfileStore`)。本机默认 `postgres` 库与早期 `github_info` 库已删,**不要假设它们存在**(psql 连接用 `-d personal_info`;GUI 工具初始数据库也填它)。
+- 启动经 `ConnectProfileStore`:直连目标库;若报 SQLSTATE 3D000(库不存在)→ 连系统模板库 `template1` → `ensureDatabase` 自动 `CREATE DATABASE`(库名过白名单正则,防注入)→ 重连。本地/云上(Aurora)同一套逻辑,**无需手工建库**。
 
-## Schema 约定(参照 `src/schema/auth.ts`)
-- `pgTable("snake_case_name", { ... })`:DB 列名 snake_case,TS 字段 camelCase。
-- 主键 `text("id").primaryKey()`(与 better-auth 风格一致)。
-- 时间戳 `timestamp("created_at").defaultNow().notNull()`;更新列加 `.$onUpdate(() => new Date())`。
-- 外键 `.references(() => other.id, { onDelete: "cascade" })`,并对外键列建 `index("<t>_<col>_idx").on(table.col)`。
-- 关系用 `relations(...)` 显式声明(`one` / `many`)。
-- **本产品**:存 GitHub 账户信息的表按 `docs/github-token-prd.md` 设计;PRD 要求字段可增删 → 走 migration 流程(见下),不要手改库结构。
+## 客户端与连接
+- `pgx/v5` 的 `pgxpool` 连接池,经 `ConnectProfileStore`(Ping + 确保 schema)建实例。勿在别处另建连接。
+- 本地 PostgreSQL 用 Homebrew(postgresql@17,未设开机自启:`brew services run postgresql@17`)。
 
-## 迁移与命令(项目根跑,经 `--filter @github_info/db`)
-- 改 schema 后:`pnpm db:generate`(生成 SQL 到 `src/migrations`)→ **审查 diff** → `pnpm db:migrate`(应用)。
-- 本地快速同步可 `pnpm db:push`;可视化 `pnpm db:studio`。
-- `drizzle.config.ts`:从 `apps/server/.env` 读 `DATABASE_URL`,dialect `postgresql`,migrations 输出 `./src/migrations`(提交进 git,但**勿手改**已生成的 migration)。
-- **破坏性变更**(删列 / 改类型)先确认数据影响,别盲目对有数据的库 push。
+## Schema 约定
+- schema 集中在 `profiles.go` 的 `profileSchemaSQL`,启动时 `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS` 幂等执行 —— **无 ORM、无迁移工具**。
+- 列名 snake_case;主键 `id text`(`gen_random_uuid()::text`);`login text UNIQUE`(介绍页以用户名寻址);`github_id text` 通过唯一索引作为 upsert 键(GitHub 数字 id 存字符串,Go 侧 `strconv` 转换);`created_at`/`updated_at` 默认 `now()`,更新时间由 upsert 的 `updated_at = now()` 维护。
+- **加/删字段**:`CREATE TABLE IF NOT EXISTS` 对已存在的表不生效,需手写一次性 `ALTER TABLE`(psql 执行)并同步改 `profileSchemaSQL`;同时波及 `githubUser`/`GithubAccount`/upsert/select/scan/前端类型,改前先 `grep -rn <field>`。
+- 破坏性变更(删列/改类型)前先确认行数与数据影响。
 
 ## 查询
-- 一律用 Drizzle query builder 或 `sql` 模板的参数化绑定,**禁止手拼 SQL 字符串**(防注入,见 `@rules/security.md`)。
+- 一律参数化(`$1, $2…`),**禁止拼 SQL 字符串**(防注入);SQL 常量集中在 `profiles.go`(`profileUpsertSQL`/`profileSelectSQL`)。
+- upsert 冲突键按不可变的 `github_id`,用户名变更时更新原记录;按 login 查询一律大小写不敏感(`lower(login) = lower($1)`)并使用表达式索引。
+- 可空列 scan 到指针(`*string`/`*time.Time`);找不到行返回哨兵错误 `ErrAccountNotFound`(`errors.Is` 判断),不要把 `pgx.ErrNoRows` 泄漏到 handler。
+
+## 测试
+- `profiles_test.go` 对真实本地库做往返测试(插入→查询→upsert 更新→清理)+ 自动建库引导测试(一次性 `personal_info_bootstrap_test` 库,用完 `DROP ... WITH (FORCE)`),PG 不可达时 `t.Skipf` 跳过;测试数据用明显的假值并在 defer 里清理。
