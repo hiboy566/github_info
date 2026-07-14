@@ -15,6 +15,19 @@ import (
 func main() {
 	loadDotEnv(".env")
 
+	// Keep the existing API Gateway endpoint as a compatibility interface.
+	// In AWS it forwards to the Fargate service through private Cloud Map DNS.
+	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
+		if internalAPIURL := strings.TrimSpace(os.Getenv("INTERNAL_API_URL")); internalAPIURL != "" {
+			proxy, err := newInternalAPIProxy(internalAPIURL)
+			if err != nil {
+				log.Fatalf("configure internal API proxy: %v", err)
+			}
+			lambda.Start(httpadapter.NewV2(withLogging(proxy)).ProxyWithContext)
+			return
+		}
+	}
+
 	port := envOr("PORT", "3000")
 	databaseConfig := databaseConfigFromEnv()
 	corsOrigins := splitOrigins(envOr("CORS_ORIGIN", "http://localhost:3001"))
@@ -36,8 +49,8 @@ func main() {
 
 	handler := withCORS(corsOrigins, withLogging(mux))
 
-	// On AWS Lambda (API Gateway HTTP API, payload v2) the same handler is
-	// served through the proxy adapter — mirroring the old Node dual-mode.
+	// Without INTERNAL_API_URL, Lambda can still run the full handler. This
+	// fallback keeps local SAM invocation and rollback revisions functional.
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
 		lambda.Start(httpadapter.NewV2(handler).ProxyWithContext)
 		return

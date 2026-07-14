@@ -113,3 +113,14 @@
 - **建库引导改走 `template1`**:`ConnectProfileStore` 直连目标库,报 SQLSTATE 3D000 → 连 template1 → `ensureDatabase` → 重连。之前"经主库引导"的前提(主库存在)已不成立;template1 是 PG 必有库,本地全新机器和全新 Aurora 都能自举。判断缺库用 `errors.As(&pgconn.PgError)` + code 3D000,别做字符串匹配。
 - 默认 `postgres` 库删了的副作用:psql/GUI 的"默认连接库"没了 —— psql 一律 `-d personal_info`,Navicat 连接的"初始数据库"也要改成 personal_info;需要恢复默认库随时 `createdb postgres`(经 template1:`psql -d template1 -c 'CREATE DATABASE postgres'`)。
 - 测试:bootstrap 用一次性 `personal_info_bootstrap_test` 库验证 3D000 自举路径,清理用 `DROP DATABASE IF EXISTS ... WITH (FORCE)`。
+
+## 2026-07-15 — ECR/ECS Fargate/ALB/Cloud Map 部署(Feature 7)
+
+**流量与网络**
+- 公网访问走 CloudFront HTTPS:`/api/*` → 公网 ALB → 私有子网 Fargate;其他请求 → S3。SPA fallback 用 DefaultCacheBehavior 上的 CloudFront Function 重写,不能再用全局 404 CustomErrorResponse,否则 API 404 会被改成 index.html。
+- API Gateway + Lambda 作为兼容入口保留;Lambda 设置 `INTERNAL_API_URL=http://api.github-info.local:3000`,启动时跳过数据库连接,经 Cloud Map 私有 A 记录代理 ECS。ECS 安全组 3000 只放行 ALB/Lambda 安全组。
+
+**容器与凭证**
+- ECR 仓库 `github-info-server` 使用不可变 Git SHA 标签;Actions 必须先 build/push 当前 SHA,再把 `BackendImageTag=$GITHUB_SHA` 传给 SAM,避免 ECS 引用尚不存在的镜像。
+- Fargate Task 使用 `awsvpc`、Target Group `ip`、256 CPU/512 MiB、两个私有子网且不分配公网 IP;数据库密码由 Secrets Manager 注入 `PGPASSWORD`,Task Execution Role 仅负责 ECR/Logs/读取该 Secret。
+- Cloud Map 名称固定 `api.github-info.local`;CloudFront API behavior 使用托管 `CachingDisabled` 与 `AllViewerExceptHostHeader` 策略。

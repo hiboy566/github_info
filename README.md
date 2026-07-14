@@ -7,7 +7,7 @@
 项目主要包含：
 
 - 前端：React + TanStack Router + Vite
-- 后端：**Go**（标准库 `net/http` + pgx），REST API；本地跑 HTTP server，云上以同一份代码跑 AWS Lambda（`provided.al2023`）
+- 后端：**Go**（标准库 `net/http` + pgx），REST API；本地跑 HTTP server，云上以容器运行在 ECS Fargate，Lambda 保留为 API Gateway 兼容入口
 - 数据库：PostgreSQL，**唯一数据库 `personal_info`**（表 `personal_profiles`），保存个人信息；本地默认的 `postgres` 库与早期的 `github_info` 库均已删除。库和表由 Go 服务启动时自动创建（缺库时经系统模板库 `template1` 引导 `CREATE DATABASE`，再 `CREATE TABLE IF NOT EXISTS`）
 - 页面：首页（Token 获取/保存账户信息）+ 个人介绍页（按用户名从 `personal_info` 库读取并生成介绍）
 
@@ -64,15 +64,16 @@ CORS_ORIGIN=http://localhost:3001
 PORT=3000
 ```
 
-## 云端部署（AWS SAM，已迁移到 Go）
+## 云端部署（ECR + ECS Fargate + ALB + Cloud Map）
 
-- **Lambda**：`Runtime: provided.al2023` + `Architectures: arm64`，Handler 为 Go 编译出的 `bootstrap`；代码里检测到 `AWS_LAMBDA_FUNCTION_NAME` 即走 API Gateway(HTTP API, payload v2) 适配器，本地则照常起 HTTP server。
-- **构建**：`sam build` 经 `apps/server/Makefile`（`CodeUri: apps/server`）交叉编译 `GOOS=linux GOARCH=arm64` 静态二进制，产物 zip 里只有 `bootstrap`。
-- **数据库**：Aurora PostgreSQL 不变；应用只用 `personal_info`（`PersonalDatabaseName` 参数），缺库时由 Lambda 冷启动经 `template1` 自动 `CREATE DATABASE`；`DatabaseName` 参数只是集群初始库（不可变属性，应用不使用）。
-- **连接配置**：本地继续使用 `DATABASE_URL`；Lambda 使用 pgx 原生的 `PGHOST` / `PGUSER` / `PGPASSWORD` / `PGDATABASE` 等变量，数据库密码无需拼进 URL，特殊字符也可安全解析。
-- **前端 HTTPS**：S3 website 只作为 CloudFront 源站；用户通过模板输出的 `FrontendUrl`（HTTPS）访问 Token 表单，Go/API Gateway 的 CORS 也只允许该 CloudFront 域名。CI 同步 S3 后会自动创建 CloudFront invalidation。
-- **CI**（`.github/workflows/deploy.yml`）：增加 `actions/setup-go`；`sam build && sam deploy` 后照旧构建前端同步 S3。所需 secrets 只剩 `AWS_ROLE_ARN`、`DB_PASSWORD`（`BETTER_AUTH_SECRET` 已随 Node 版移除，可从仓库 secrets 删除）。
-- 本地可用 `sam validate` / `sam build` 自检（已验证通过）；`sam deploy` 由 push main 触发 CI 执行。
+- **前端**：S3 托管静态文件，CloudFront 提供 HTTPS。普通页面请求进入 S3，`/api/*` 通过独立 Cache Behavior 转发到 ALB。
+- **容器镜像**：GitHub Actions 使用提交 SHA 构建 `linux/amd64` Go 镜像并推送到私有 ECR；仓库开启不可变标签、推送扫描和生命周期清理。
+- **后端**：公网 ALB 位于两个公网子网；ECS Fargate 服务位于两个私有子网，不分配公网 IP。ALB 仅把流量转发到 ECS 安全组的 `3000` 端口。
+- **Lambda 兼容入口**：API Gateway + Lambda 继续保留；Lambda 不再直接连接数据库，而是通过私有 Cloud Map 地址 `api.github-info.local:3000` 代理到 ECS。
+- **数据库**：Aurora PostgreSQL 位于私有子网，只允许 ECS、Lambda 和 SSM 跳板机安全组访问 `5432`。应用只使用 `personal_info`，缺库时由 Fargate 服务经 `template1` 自动创建。
+- **凭证与日志**：数据库密码存入 Secrets Manager，并在运行时注入 ECS Task；Task Execution Role 只负责拉取 ECR、读取该 Secret 和写入 `/ecs/github-info-server` 日志组。
+- **VPC**：两个公网子网承载 ALB，其中一个保留 NAT Gateway 和 SSM 跳板机；两个私有子网承载 Fargate、Lambda 和 Aurora。Fargate 通过 NAT 调用 GitHub API。
+- **CI/CD**：push `main` 后自动测试，构建并推送镜像，再由 SAM/CloudFormation 更新基础设施和 ECS Task Definition，最后构建前端、同步 S3 并刷新 CloudFront。
 
 ## 常用命令
 
@@ -95,7 +96,8 @@ github_info/
 │   │           ├── index.tsx       # 首页：Token 获取账户信息
 │   │           └── intro.$login.tsx # 个人介绍页（新功能）
 │   └── server/      # Go 后端
-│       ├── main.go      # 入口：路由、CORS、日志、.env 加载、Lambda/本地双模式
+│       ├── main.go      # 入口：Fargate/本地 HTTP 服务与 Lambda 兼容模式
+│       ├── proxy.go     # Lambda 经 Cloud Map 代理到 ECS Fargate
 │       ├── github.go    # GitHub API 客户端（错误分类，token 不进日志/错误信息）
 │       ├── profiles.go  # personal_info 库：自动建库（template1 引导）、personal_profiles 读写
 │       ├── handlers.go  # HTTP handler 与错误响应
@@ -105,6 +107,6 @@ github_info/
 │   ├── ui/          # 共享 UI 组件（shadcn）
 │   ├── env/         # 前端环境变量校验（VITE_SERVER_URL）
 │   └── config/      # 共享 tsconfig
-├── template.yaml    # AWS SAM：HTTP API + Lambda(provided.al2023, Go) + VPC + Aurora
+├── template.yaml    # AWS SAM/CloudFormation：ECR + ECS/Fargate + ALB + Cloud Map + Lambda + VPC + Aurora
 └── docs/            # 产品 PRD
 ```

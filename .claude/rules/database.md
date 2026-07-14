@@ -6,7 +6,7 @@ description: apps/server/store.go 数据库规范 —— Go pgx + 本地 Postgre
 
 ## 唯一数据库 personal_info(默认 postgres 库已删除)
 - **`personal_info`**(env `DATABASE_URL`)→ 表 `personal_profiles`,代码在 `profiles.go`(`ProfileStore`)。本机默认 `postgres` 库与早期 `github_info` 库已删,**不要假设它们存在**(psql 连接用 `-d personal_info`;GUI 工具初始数据库也填它)。
-- 启动经 `ConnectProfileStore`:直连目标库;若报 SQLSTATE 3D000(库不存在)→ 连系统模板库 `template1` → `ensureDatabase` 自动 `CREATE DATABASE`(库名过白名单正则,防注入)→ 重连。本地/云上(Aurora)同一套逻辑,**无需手工建库**。
+- 启动经 `ConnectProfileStore`:直连目标库;若报 SQLSTATE 3D000(库不存在)→ 连系统模板库 `template1` → `ensureDatabase` 自动 `CREATE DATABASE`(库名过白名单正则,防注入)→ 重连。本地与云上 Fargate/Aurora 同一套逻辑,**无需手工建库**。
 
 ## 客户端与连接
 - `pgx/v5` 的 `pgxpool` 连接池,经 `ConnectProfileStore`(Ping + 确保 schema)建实例。勿在别处另建连接。

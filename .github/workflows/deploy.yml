@@ -76,37 +76,13 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup SAM CLI
-        uses: aws-actions/setup-sam@v2
-
-      - name: Build backend
-        run: sam build
-
-      - name: Deploy backend
-        env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-        run: |
-          sam deploy \
-            --region "$AWS_REGION" \
-            --stack-name "$STACK_NAME" \
-            --resolve-s3 \
-            --capabilities CAPABILITY_IAM \
-            --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
-            --parameter-overrides \
-              DatabaseClusterIdentifier="$DATABASE_CLUSTER_IDENTIFIER" \
-              DatabaseName="$DATABASE_NAME" \
-              DatabaseUser="$DATABASE_USER" \
-              DatabasePassword="$DB_PASSWORD" \
-              FrontendBucketName="$FRONTEND_BUCKET"
-
       - name: Resolve backend repository
         id: backend-repository
         run: |
-          repository_uri="$(aws cloudformation describe-stacks \
+          repository_uri="$(aws ecr describe-repositories \
             --region "$AWS_REGION" \
-            --stack-name "$STACK_NAME" \
-            --query "Stacks[0].Outputs[?OutputKey=='BackendRepositoryUri'].OutputValue" \
+            --repository-names "$ECR_REPOSITORY" \
+            --query "repositories[0].repositoryUri" \
             --output text)"
           test -n "$repository_uri"
           echo "repository_uri=$repository_uri" >> "$GITHUB_OUTPUT"
@@ -150,6 +126,31 @@ jobs:
           test "$image_digest" != "None"
           echo "Backend image digest: $image_digest"
 
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Build Lambda package
+        run: sam build
+
+      - name: Deploy infrastructure
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          sam deploy \
+            --region "$AWS_REGION" \
+            --stack-name "$STACK_NAME" \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              BackendImageTag="$GITHUB_SHA" \
+              DatabaseClusterIdentifier="$DATABASE_CLUSTER_IDENTIFIER" \
+              DatabaseName="$DATABASE_NAME" \
+              DatabaseUser="$DATABASE_USER" \
+              DatabasePassword="$DB_PASSWORD" \
+              FrontendBucketName="$FRONTEND_BUCKET"
+
       - name: Resolve frontend distribution
         id: frontend
         run: |
@@ -158,13 +159,20 @@ jobs:
             --stack-name "$STACK_NAME" \
             --query "Stacks[0].Outputs[?OutputKey=='FrontendDistributionId'].OutputValue" \
             --output text)"
+          frontend_url="$(aws cloudformation describe-stacks \
+            --region "$AWS_REGION" \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue" \
+            --output text)"
           test -n "$distribution_id"
+          test -n "$frontend_url"
           echo "distribution_id=$distribution_id" >> "$GITHUB_OUTPUT"
+          echo "frontend_url=$frontend_url" >> "$GITHUB_OUTPUT"
 
       - name: Build frontend
         run: pnpm --filter web build
         env:
-          VITE_SERVER_URL: ${{ env.API_URL }}
+          VITE_SERVER_URL: ${{ steps.frontend.outputs.frontend_url }}
 
       - name: Deploy frontend
         run: |

@@ -17,7 +17,7 @@ description: 安全规范 —— 认证 / 密钥 / GitHub PAT / 输入校验(git
 
 ## 密钥与环境变量
 - 前端变量经 `@github_info/env/web`(t3-env + zod)读取并校验,**禁止裸读 `import.meta.env`**;只暴露 `VITE_` 前缀的非敏感量。
-- Go 端环境变量经 `loadDotEnv` 后由 `databaseConfigFromEnv` / `envOr` 读取(`apps/server/main.go`);Lambda 的数据库密码单独放 `PGPASSWORD`,不拼接进 URL;新增机密变量缺失时应 fail fast。
+- Go 端环境变量经 `loadDotEnv` 后由 `databaseConfigFromEnv` / `envOr` 读取(`apps/server/main.go`);云上数据库密码存 Secrets Manager,仅在 ECS 启动时注入 `PGPASSWORD`,Lambda 不持有数据库密码;新增机密变量缺失时应 fail fast。
 - `.env`(`apps/*/.env`)已 gitignore,**绝不提交**。
 
 ## 输入与数据

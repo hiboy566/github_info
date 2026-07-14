@@ -5,7 +5,8 @@ description: apps/server 服务端规范 —— Go net/http / REST / GitHub API(
 # 后端 / API 规范(apps/server,Go)
 
 ## 分层(单 package main)
-- `main.go` —— 装配:.env 加载、`ConnectProfileStore`、路由注册(`net/http` method 路由)、CORS、请求日志、**Lambda/本地双模式**(`AWS_LAMBDA_FUNCTION_NAME` 存在 → `lambda.Start(httpadapter.NewV2(handler).ProxyWithContext)`,HTTP API payload v2;否则 `ListenAndServe`)。业务逻辑不写这里。
+- `main.go` —— 装配:.env 加载、`ConnectProfileStore`、路由注册、CORS、请求日志;本地/ECS 运行 HTTP server,Lambda 检测到 `INTERNAL_API_URL` 时不连数据库,经 payload v2 adapter 调用 `proxy.go`。
+- `proxy.go` —— 仅负责 Lambda → Cloud Map → ECS 的内网反向代理;目标只允许 `http` 且禁止 URL credentials/query/fragment,失败统一返回 502 且不泄漏内部地址。
 - `github.go` —— GitHub API 客户端:`GithubAccount`(前后端数据契约)、`GithubClientError`(域错误码)、`FetchUser`。
 - `profiles.go` —— personal_info 数据访问 + 自动建库引导(见 `@rules/database.md`)。
 - `handlers.go` —— HTTP handler:解析输入 → 调 client/store → `writeJSON`/`writeError`;fetch 成功后写 `personal_profiles`,保存失败 `saved=false` 并记日志(不阻塞返回)。
@@ -19,7 +20,7 @@ description: apps/server 服务端规范 —— Go net/http / REST / GitHub API(
 
 ## 装配约定
 - CORS:白名单来自 env `CORS_ORIGIN`(逗号分隔),`withCORS` 中间件统一处理(含 OPTIONS 预检);新增来源改 env,别放通配。
-- 环境变量:`loadDotEnv(".env")` 后由 `databaseConfigFromEnv` / `envOr` 读取;本地数据库用 `DATABASE_URL`,Lambda 用 pgx 原生 `PG*` 变量,新增变量需同步 README 与部署模板。
+- 环境变量:`loadDotEnv(".env")` 后由 `databaseConfigFromEnv` / `envOr` 读取;本地数据库用 `DATABASE_URL`,ECS 用 pgx 原生 `PG*`(密码由 Secrets Manager 注入),Lambda 用 `INTERNAL_API_URL`,新增变量需同步 README 与部署模板。
 - 请求体一律 `http.MaxBytesReader` 限长后再 decode;入库/外呼分别用带超时的 context。
 
 ## GitHub API 集成(本产品核心)

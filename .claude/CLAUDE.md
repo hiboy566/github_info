@@ -7,12 +7,12 @@ GitHub Token 工具:用户输入 GitHub Personal Access Token,经服务端校验
 - **Monorepo**:pnpm workspaces(`apps/*` + `packages/*`),前端 Node + ESM,pnpm@11.7.0。
 - **工具链**:**Vite+**(`vp` CLI,`vite-plus`)统一前端 dev/build/lint/fmt;`vite`/`vitest` 被 override 为 `@voidzero-dev/vite-plus-*`。
 - **前端** `apps/web`:React 19 + TanStack Router(文件路由)+ TanStack Query,Tailwind v4,shadcn/ui(来自 `packages/ui`);经 `src/lib/api.ts` 的 fetch 封装调后端 REST。
-- **后端** `apps/server`:**Go 1.26**,标准库 `net/http`(Go 1.22+ method 路由)+ `pgx/v5` 连接池;单 package main(main/github/profiles/handlers);`package.json` 里的 dev/build/check-types 分别代理到 `go run` / `go build` / `go vet`;检测到 `AWS_LAMBDA_FUNCTION_NAME` 时经 `aws-lambda-go-api-proxy/httpadapter`(payload v2)跑 Lambda,否则本地 `ListenAndServe`。
+- **后端** `apps/server`:**Go 1.26**,标准库 `net/http`(Go 1.22+ method 路由)+ `pgx/v5` 连接池;单 package main(main/github/profiles/handlers/proxy);`package.json` 里的 dev/build/check-types 分别代理到 `go run` / `go build` / `go vet`;本地与 ECS Fargate 跑 `ListenAndServe`,Lambda 经 Cloud Map 反向代理到 ECS。
 - **数据库**:PostgreSQL **唯一库 `personal_info`**(表 `personal_profiles`,`profiles.go`);本地默认 `postgres` 库与早期 `github_info` 库已删除。缺库时启动经系统模板库 `template1` 引导 `CREATE DATABASE`,表 `CREATE TABLE IF NOT EXISTS`,**无 ORM、无迁移工具**。本地 Homebrew postgresql@17。
 - **认证**:无(MVP 公开页,无登录;better-auth 已随 Node 后端一并移除)。
-- **环境** `packages/env`:`@t3-oss/env-core` + zod(仅 `./web`);Go 端自己读 `.env`(`apps/server/main.go` 的 loadDotEnv;本地用 DATABASE_URL, Lambda 用 PG* 连接变量;另有 CORS_ORIGIN / PORT)。
+- **环境** `packages/env`:`@t3-oss/env-core` + zod(仅 `./web`);Go 端自己读 `.env`(`apps/server/main.go` 的 loadDotEnv;本地用 DATABASE_URL,ECS 用 PG* + Secrets Manager,Lambda 用 INTERNAL_API_URL;另有 CORS_ORIGIN / PORT)。
 - **校验/格式化**:前端 Biome 2(Tab 缩进、双引号);Go 用 gofmt/go vet。
-- **部署**:Docker Compose(web :3001、server :3000);**AWS SAM 已迁移 Go**——Lambda `provided.al2023`/arm64,`CodeUri: apps/server` + `apps/server/Makefile` 交叉编译 `bootstrap`,CI 在 `.github/workflows/deploy.yml`(setup-go + sam build/deploy + S3 前端)。
+- **部署**:Docker Compose(web :3001、server :3000);AWS 为 ECR + ECS Fargate(私有子网)+ ALB(双公网子网)+ Cloud Map + Aurora,Lambda/API Gateway 是兼容代理入口,前端 S3 + CloudFront(`/api/*` → ALB);CI 用 SHA 镜像标签后 SAM/CloudFormation 部署。
 
 ## 常用命令(项目根)
 
@@ -37,8 +37,8 @@ apps/
     src/lib/api.ts            # REST 客户端:GithubAccount 类型、ApiError、getErrorMessage
     src/routes/index.tsx      # 首页(Token → 获取/保存账户)
     src/routes/intro.$login.tsx  # 个人介绍页(读库生成)
-  server/   # Go 后端(:3000;Lambda 双模式)
-    main.go / github.go / profiles.go / handlers.go / Makefile / profiles_test.go
+  server/   # Go 后端(:3000;Fargate/本地服务 + Lambda Cloud Map 代理)
+    main.go / proxy.go / github.go / profiles.go / handlers.go / Makefile / profiles_test.go
 packages/
   ui/       # 共享 shadcn/ui 组件与样式(@github_info/ui)
   env/      # t3-env + zod 环境校验(仅 web)
