@@ -26,6 +26,7 @@ permissions:
 env:
   AWS_REGION: ap-southeast-2
   STACK_NAME: github-info
+  ECR_REPOSITORY: github-info-server
   FRONTEND_BUCKET: github-info-web-956959393973-ap-southeast-2
   API_URL: https://xl59ygu7th.execute-api.ap-southeast-2.amazonaws.com
   DATABASE_CLUSTER_IDENTIFIER: database-github-info-sam
@@ -98,6 +99,56 @@ jobs:
               DatabaseUser="$DATABASE_USER" \
               DatabasePassword="$DB_PASSWORD" \
               FrontendBucketName="$FRONTEND_BUCKET"
+
+      - name: Resolve backend repository
+        id: backend-repository
+        run: |
+          repository_uri="$(aws cloudformation describe-stacks \
+            --region "$AWS_REGION" \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='BackendRepositoryUri'].OutputValue" \
+            --output text)"
+          test -n "$repository_uri"
+          echo "repository_uri=$repository_uri" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        id: backend-image
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          REPOSITORY_URI: ${{ steps.backend-repository.outputs.repository_uri }}
+        run: |
+          image_uri="$REPOSITORY_URI:$IMAGE_TAG"
+          if aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$IMAGE_TAG" >/dev/null 2>&1; then
+            echo "Backend image already exists: $image_uri"
+          else
+            docker build \
+              --platform linux/amd64 \
+              --file apps/server/Dockerfile \
+              --tag "$image_uri" \
+              .
+            docker push "$image_uri"
+          fi
+          echo "image_uri=$image_uri" >> "$GITHUB_OUTPUT"
+
+      - name: Verify backend image
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          image_digest="$(aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$IMAGE_TAG" \
+            --query "imageDetails[0].imageDigest" \
+            --output text)"
+          test -n "$image_digest"
+          test "$image_digest" != "None"
+          echo "Backend image digest: $image_digest"
 
       - name: Resolve frontend distribution
         id: frontend

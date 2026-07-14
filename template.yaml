@@ -46,6 +46,49 @@ Globals:
         PGSSLMODE: require
 
 Resources:
+  BackendRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: github-info-server
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Expire untagged images after one day",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 1
+                },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep the 20 newest images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 20
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: github-info-server
+        - Key: Project
+          Value: github-info
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -362,6 +405,12 @@ Resources:
       PubliclyAccessible: false
 
 Outputs:
+  BackendRepositoryName:
+    Description: ECR repository used for the Go backend container image.
+    Value: !Ref BackendRepository
+  BackendRepositoryUri:
+    Description: ECR repository URI used by GitHub Actions and ECS.
+    Value: !GetAtt BackendRepository.RepositoryUri
   VpcId:
     Description: VPC used by Lambda, ECS, Aurora, and the load balancer.
     Value: !Ref Vpc
