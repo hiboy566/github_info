@@ -25,7 +25,11 @@ Parameters:
     AllowedPattern: "[0-9a-f]{32}"
   CloudflareApiTokenSecretArn:
     Type: String
-    Description: ARN of an existing Secrets Manager secret whose entire value is a Cloudflare Pages Edit token.
+    Description: ARN of an existing Secrets Manager JSON secret containing the Cloudflare Pages Edit token.
+  CloudflareApiTokenJsonKey:
+    Type: String
+    Default: Cloudflare_Token
+    AllowedPattern: "[A-Za-z0-9_-]+"
   CloudflarePagesProject:
     Type: String
     Default: github-info-preview
@@ -127,7 +131,7 @@ Resources:
                 Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${CodeBuildProjectName}
               - Effect: Allow
                 Action: codebuild:BatchGetBuilds
-                Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:build/${CodeBuildProjectName}:*
+                Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${CodeBuildProjectName}
       Tags:
         - Key: Project
           Value: github-info
@@ -198,6 +202,8 @@ Resources:
                   - apigateway:PATCH
                   - apigateway:POST
                   - apigateway:PUT
+                  - apigateway:TagResource
+                  - apigateway:UntagResource
                 Resource: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}::/*
               - Sid: ManagePreviewLogs
                 Effect: Allow
@@ -224,6 +230,10 @@ Resources:
                   - s3:GetObject
                   - s3:GetObjectVersion
                 Resource: !Sub ${ArtifactBucket.Arn}/*
+              - Sid: UseSamTransform
+                Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31
               - Sid: PassRuntimeRoles
                 Effect: Allow
                 Action: iam:PassRole
@@ -435,7 +445,7 @@ Resources:
             Value: !Ref CloudflareAccountId
           - Name: CLOUDFLARE_API_TOKEN
             Type: SECRETS_MANAGER
-            Value: !Ref CloudflareApiTokenSecretArn
+            Value: !Sub ${CloudflareApiTokenSecretArn}:${CloudflareApiTokenJsonKey}
           - Name: CLOUDFLARE_PAGES_PROJECT
             Type: PLAINTEXT
             Value: !Ref CloudflarePagesProject
