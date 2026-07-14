@@ -127,7 +127,7 @@ Resources:
                 Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${CodeBuildProjectName}
               - Effect: Allow
                 Action: codebuild:BatchGetBuilds
-                Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:build/${CodeBuildProjectName}:*
+                Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${CodeBuildProjectName}
       Tags:
         - Key: Project
           Value: github-info
