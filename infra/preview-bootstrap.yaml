@@ -25,7 +25,11 @@ Parameters:
     AllowedPattern: "[0-9a-f]{32}"
   CloudflareApiTokenSecretArn:
     Type: String
-    Description: ARN of an existing Secrets Manager secret whose entire value is a Cloudflare Pages Edit token.
+    Description: ARN of an existing Secrets Manager JSON secret containing the Cloudflare Pages Edit token.
+  CloudflareApiTokenJsonKey:
+    Type: String
+    Default: Cloudflare_Token
+    AllowedPattern: "[A-Za-z0-9_-]+"
   CloudflarePagesProject:
     Type: String
     Default: github-info-preview
@@ -441,7 +445,7 @@ Resources:
             Value: !Ref CloudflareAccountId
           - Name: CLOUDFLARE_API_TOKEN
             Type: SECRETS_MANAGER
-            Value: !Ref CloudflareApiTokenSecretArn
+            Value: !Sub ${CloudflareApiTokenSecretArn}:${CloudflareApiTokenJsonKey}
           - Name: CLOUDFLARE_PAGES_PROJECT
             Type: PLAINTEXT
             Value: !Ref CloudflarePagesProject

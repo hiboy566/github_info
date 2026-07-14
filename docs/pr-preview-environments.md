@@ -42,11 +42,11 @@ Create a custom Cloudflare API token with only:
 
 Record the 32-character Cloudflare Account ID and the token. Do not add the token to the repository.
 
-Store the token directly in AWS Secrets Manager using the AWS console:
+Store the token in AWS Secrets Manager using the AWS console:
 
 ```text
 Secret type: Other type of secret
-Plaintext value: <Cloudflare token only>
+Key/value: Cloudflare_Token = <Cloudflare token>
 Secret name: github-info/pr-preview/cloudflare-api-token
 ```
 
