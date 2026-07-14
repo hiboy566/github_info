@@ -160,6 +160,17 @@ Resources:
         - Key: Name
           Value: github-info-public
 
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.3.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: github-info-public-b
+
   PrivateLambdaSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
@@ -198,6 +209,12 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet
+
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetB
 
   NatEip:
     Type: AWS::EC2::EIP
@@ -345,6 +362,15 @@ Resources:
       PubliclyAccessible: false
 
 Outputs:
+  VpcId:
+    Description: VPC used by Lambda, ECS, Aurora, and the load balancer.
+    Value: !Ref Vpc
+  PublicSubnetIds:
+    Description: Public subnets in two Availability Zones for the internet-facing load balancer.
+    Value: !Join [",", [!Ref PublicSubnet, !Ref PublicSubnetB]]
+  PrivateSubnetIds:
+    Description: Private subnets used by Lambda, ECS Fargate, and Aurora PostgreSQL.
+    Value: !Join [",", [!Ref PrivateLambdaSubnetA, !Ref PrivateLambdaSubnetB]]
   ApiUrl:
     Description: HTTP API endpoint.
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/
