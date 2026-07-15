@@ -1,0 +1,356 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1200" viewBox="0 0 1920 1200" role="img" aria-labelledby="title desc">
+  <title id="title">github_info AWS production and pull request preview architecture</title>
+  <desc id="desc">Comic-style architecture diagram showing CloudFront, S3, ALB, API Gateway, Lambda, Cloud Map, ECS Fargate, Aurora PostgreSQL, NAT Gateway, GitHub API, and the GitHub Actions plus CodeBuild pull request preview pipeline.</desc>
+  <defs>
+    <pattern id="paperDots" width="18" height="18" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#d8d2c2" opacity="0.34"/>
+    </pattern>
+    <pattern id="blueDots" width="14" height="14" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.3" fill="#b8d9ff" opacity="0.45"/>
+    </pattern>
+    <pattern id="yellowDots" width="12" height="12" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.5" fill="#e3a600" opacity="0.38"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#172033" flood-opacity="0.25"/>
+    </filter>
+    <marker id="arrowBlack" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#111827"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#d92d47"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#008b91"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#2563eb"/>
+    </marker>
+    <style><![CDATA[
+      text { font-family: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #172033; letter-spacing: 0; }
+      .comic-title { font-family: Impact, "Arial Black", "PingFang SC", sans-serif; font-weight: 900; font-style: italic; paint-order: stroke fill; stroke: #101828; stroke-width: 10px; stroke-linejoin: round; fill: #ffffff; }
+      .comic-subtitle { font-family: Impact, "Arial Black", "PingFang SC", sans-serif; font-weight: 900; font-style: italic; paint-order: stroke fill; stroke: #111827; stroke-width: 5px; stroke-linejoin: round; fill: #ffd21f; }
+      .h1 { font-size: 28px; font-weight: 800; }
+      .h2 { font-size: 22px; font-weight: 800; }
+      .h3 { font-size: 18px; font-weight: 800; }
+      .body { font-size: 16px; font-weight: 600; }
+      .small { font-size: 14px; font-weight: 600; }
+      .tiny { font-size: 12px; font-weight: 600; }
+      .muted { fill: #526079; }
+      .inverse { fill: #ffffff; }
+      .service-name { font-size: 17px; font-weight: 850; text-anchor: middle; }
+      .service-sub { font-size: 13px; font-weight: 650; text-anchor: middle; fill: #44516a; }
+      .panel { fill: #fffdf7; stroke: #172033; stroke-width: 3; }
+      .vpc { fill: #f9fff9; stroke: #1f7a37; stroke-width: 4; }
+      .public { fill: #eef8e9; stroke: #3f8b40; stroke-width: 2; stroke-dasharray: 8 5; }
+      .private { fill: #eaf4ff; stroke: #2563eb; stroke-width: 2; stroke-dasharray: 8 5; }
+      .edge-card { fill: #ffffff; stroke: #172033; stroke-width: 3; rx: 12; filter: url(#shadow); }
+      .aws-card { fill: #ffffff; stroke: #172033; stroke-width: 2.5; rx: 12; filter: url(#shadow); }
+      .pipeline-card { fill: #ffffff; stroke: #193a70; stroke-width: 2.5; rx: 10; filter: url(#shadow); }
+      .runtime { fill: none; stroke: #111827; stroke-width: 4; marker-end: url(#arrowBlack); stroke-linecap: round; stroke-linejoin: round; }
+      .deploy { fill: none; stroke: #d92d47; stroke-width: 3; stroke-dasharray: 8 6; marker-end: url(#arrowRed); stroke-linecap: round; stroke-linejoin: round; }
+      .discovery { fill: none; stroke: #008b91; stroke-width: 3; stroke-dasharray: 6 5; marker-end: url(#arrowTeal); stroke-linecap: round; stroke-linejoin: round; }
+      .tunnel { fill: none; stroke: #2563eb; stroke-width: 3; stroke-dasharray: 7 6; marker-end: url(#arrowBlue); stroke-linecap: round; stroke-linejoin: round; }
+      .arrow-label { font-size: 13px; font-weight: 800; text-anchor: middle; paint-order: stroke fill; stroke: #fffdf7; stroke-width: 3px; stroke-linejoin: round; }
+      .badge { font-size: 12px; font-weight: 800; fill: #ffffff; text-anchor: middle; }
+      .role-name { font-size: 12px; font-weight: 750; text-anchor: middle; }
+    ]]></style>
+  </defs>
+
+  <rect width="1920" height="1200" fill="#fbf7ec"/>
+  <rect width="1920" height="1200" fill="url(#paperDots)"/>
+  <rect x="6" y="6" width="1908" height="1188" rx="6" fill="none" stroke="#101828" stroke-width="7"/>
+
+  <!-- Comic title block -->
+  <g>
+    <path d="M20 30 L385 30 L352 66 L392 82 L354 105 L388 132 L346 150 L382 184 L335 191 L366 232 L319 232 L337 280 L292 264 L292 318 L250 286 L230 336 L198 293 L168 340 L145 291 L100 326 L95 274 L43 291 L58 241 L16 235 L52 199 L13 177 L58 151 L20 118 L64 101 Z" fill="#ffd84b" stroke="#111827" stroke-width="4"/>
+    <path d="M34 42 L370 42 L340 70 L376 83 L340 104 L374 131 L332 144 L365 175 L323 181 L350 217 L306 216 L320 257 L279 244 L277 288 L244 263 L227 306 L200 270 L173 308 L153 268 L116 296 L111 254 L70 270 L83 228 L47 223 L77 195 L42 176 L78 153 L44 126 L83 109 Z" fill="url(#yellowDots)" opacity="0.85"/>
+    <g stroke="#111827" stroke-width="3">
+      <path d="M54 34 L95 96"/><path d="M90 29 L121 89"/><path d="M126 28 L148 81"/><path d="M167 27 L176 73"/><path d="M214 28 L210 72"/><path d="M257 29 L242 76"/><path d="M302 31 L272 82"/><path d="M342 35 L300 91"/>
+    </g>
+    <text x="48" y="118" class="comic-title" font-size="65">GITHUB</text>
+    <text x="77" y="184" class="comic-title" font-size="68">INFO</text>
+    <text x="52" y="232" class="comic-subtitle" font-size="27">PROFILE COLLECTOR</text>
+    <path d="M63 253 Q190 232 330 252 L300 309 Q190 291 73 310 Z" fill="#123d66" stroke="#111827" stroke-width="4"/>
+    <text x="190" y="287" text-anchor="middle" font-size="25" font-weight="850" class="inverse">AWS 架构图 · GO 版</text>
+    <path d="M280 324 l10 22 24 3-18 16 6 24-22-12-21 12 5-24-18-16 25-3z" fill="#ffd84b" stroke="#111827" stroke-width="3"/>
+  </g>
+
+  <!-- User/browser card -->
+  <g filter="url(#shadow)">
+    <rect x="55" y="405" width="270" height="195" rx="16" fill="#ffffff" stroke="#111827" stroke-width="4"/>
+    <rect x="55" y="405" width="270" height="42" rx="16" fill="#ffd84b" stroke="#111827" stroke-width="4"/>
+    <path d="M55 447 H325" stroke="#111827" stroke-width="4"/>
+    <circle cx="78" cy="426" r="6" fill="#ef4444"/><circle cx="98" cy="426" r="6" fill="#f59e0b"/><circle cx="118" cy="426" r="6" fill="#22c55e"/>
+    <text x="190" y="434" text-anchor="middle" class="h3">用户浏览器</text>
+    <rect x="82" y="472" width="96" height="72" rx="8" fill="#e8f2ff" stroke="#172033" stroke-width="3"/>
+    <circle cx="130" cy="501" r="19" fill="#2563eb"/>
+    <path d="M105 534 Q130 514 155 534" fill="#2563eb"/>
+    <rect x="194" y="474" width="102" height="62" rx="7" fill="#15213b" stroke="#172033" stroke-width="3"/>
+    <path d="M185 542 H304 L289 558 H199 Z" fill="#7a8aa6" stroke="#172033" stroke-width="3"/>
+    <text x="190" y="584" text-anchor="middle" class="small">输入 GitHub PAT · 查看个人主页</text>
+  </g>
+  <path d="M83 624 Q190 603 303 626 Q312 657 291 679 Q190 699 77 678 Q59 651 83 624 Z" fill="#ffffff" stroke="#111827" stroke-width="3"/>
+  <text x="190" y="644" text-anchor="middle" class="small">PAT 只在服务端调用 GitHub</text>
+  <text x="190" y="664" text-anchor="middle" class="small">不落库 · 不写日志</text>
+
+  <!-- AWS region panel -->
+  <rect x="400" y="25" width="1285" height="785" rx="18" class="panel"/>
+  <rect x="400" y="25" width="1285" height="68" rx="18" fill="#fffaf0" stroke="#172033" stroke-width="3"/>
+  <rect x="401" y="26" width="82" height="66" rx="16" fill="#ff9900"/>
+  <text x="442" y="64" text-anchor="middle" font-size="23" font-weight="900" fill="#ffffff">aws</text>
+  <path d="M419 72 Q442 87 467 72" fill="none" stroke="#ffffff" stroke-width="3"/>
+  <text x="510" y="69" class="h1">AWS · ap-southeast-2 (Sydney)</text>
+  <rect x="1390" y="43" width="260" height="34" rx="17" fill="#e7f7eb" stroke="#1f7a37" stroke-width="2"/>
+  <text x="1520" y="66" text-anchor="middle" class="small" fill="#166534">Production · 2 Availability Zones</text>
+
+  <!-- VPC and subnet bands -->
+  <rect x="690" y="105" width="960" height="680" rx="18" class="vpc"/>
+  <rect x="704" y="119" width="932" height="50" rx="12" fill="#ecf9ef" stroke="#1f7a37" stroke-width="2"/>
+  <circle cx="733" cy="144" r="17" fill="#2e8b45"/>
+  <path d="M724 147 h18 v-10 q0-7-9-7 q-9 0-9 7z" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+  <text x="765" y="152" class="h2" fill="#166534">VPC github-info-vpc · 10.42.0.0/16</text>
+  <text x="1050" y="196" text-anchor="middle" class="small" fill="#174ea6">可用区 A · ap-southeast-2a</text>
+  <text x="1415" y="196" text-anchor="middle" class="small" fill="#174ea6">可用区 B · ap-southeast-2b</text>
+  <path d="M1160 170 V755" stroke="#6ba7e8" stroke-width="2" stroke-dasharray="6 5"/>
+  <rect x="710" y="205" width="920" height="160" rx="16" class="public"/>
+  <rect x="710" y="385" width="920" height="370" rx="16" class="private"/>
+  <rect x="718" y="214" width="108" height="46" rx="9" fill="#d9f3d1" stroke="#397a3b" stroke-width="2"/>
+  <text x="772" y="234" text-anchor="middle" class="small" fill="#1d6f2d">公网子网</text>
+  <text x="772" y="252" text-anchor="middle" class="tiny" fill="#1d6f2d">Public</text>
+  <text x="960" y="224" text-anchor="middle" class="tiny muted">10.42.0.0/24</text>
+  <text x="1400" y="224" text-anchor="middle" class="tiny muted">10.42.3.0/24</text>
+  <rect x="718" y="394" width="108" height="46" rx="9" fill="#d9eaff" stroke="#2563eb" stroke-width="2"/>
+  <text x="772" y="414" text-anchor="middle" class="small" fill="#174ea6">私有子网</text>
+  <text x="772" y="432" text-anchor="middle" class="tiny" fill="#174ea6">Private</text>
+  <text x="960" y="404" text-anchor="middle" class="tiny muted">10.42.1.0/24</text>
+  <text x="1400" y="404" text-anchor="middle" class="tiny muted">10.42.2.0/24</text>
+  <rect x="1268" y="395" width="300" height="31" rx="15" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="1418" y="416" text-anchor="middle" class="tiny" fill="#174ea6">Lambda / Fargate / Aurora 跨两个私有子网</text>
+
+  <!-- Runtime flow arrows, drawn behind service cards -->
+  <path d="M325 472 H425 Q440 472 440 452 V337" class="runtime"/>
+  <text x="377" y="459" class="arrow-label">HTTPS</text>
+  <path d="M325 520 H426 Q443 520 443 562" class="runtime"/>
+  <path d="M570 315 H585" class="runtime"/>
+  <path d="M570 344 H650 Q670 344 670 294 H724" class="runtime"/>
+  <text x="650" y="330" class="arrow-label">/api/*</text>
+  <path d="M570 575 H682 Q703 575 703 490 H744" class="runtime"/>
+  <text x="649" y="560" class="arrow-label">API Gateway</text>
+  <path d="M860 282 H1080 Q1100 282 1100 479 H1122" class="runtime"/>
+  <text x="1010" y="266" class="arrow-label">ALB → ECS</text>
+  <path d="M900 488 H932" class="runtime"/>
+  <path d="M1090 488 H1122" class="runtime"/>
+  <text x="1010" y="472" class="arrow-label">私网 DNS</text>
+  <path d="M1316 485 H1392" class="runtime"/>
+  <text x="1355" y="468" class="arrow-label">5432</text>
+  <path d="M1215 405 V360 Q1215 344 1195 344 H940 V335" class="runtime"/>
+  <path d="M1005 282 H1100 V190 H1688 V230 H1710" class="runtime"/>
+  <text x="1530" y="258" class="arrow-label">GitHub REST API</text>
+  <path d="M1085 335 V350 H1370 Q1390 350 1390 370 V397" class="tunnel"/>
+  <text x="1300" y="344" class="arrow-label" fill="#2563eb">SSM 隧道</text>
+  <path d="M1050 610 V554 Q1050 535 1120 535" class="discovery"/>
+  <path d="M1260 610 V558" class="discovery"/>
+  <path d="M1475 610 V555 Q1475 545 1315 545" class="deploy"/>
+
+  <!-- Edge services outside VPC -->
+  <g>
+    <rect x="445" y="260" width="125" height="110" class="edge-card"/>
+    <circle cx="508" cy="301" r="29" fill="#7d4fc5"/>
+    <circle cx="508" cy="301" r="17" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+    <circle cx="508" cy="280" r="5" fill="#ffffff"/><circle cx="529" cy="301" r="5" fill="#ffffff"/><circle cx="487" cy="301" r="5" fill="#ffffff"/><circle cx="508" cy="322" r="5" fill="#ffffff"/>
+    <path d="M508 284 L525 299 M512 318 L526 305 M491 305 L504 318 M491 297 L504 284" stroke="#ffffff" stroke-width="2"/>
+    <text x="508" y="349" class="service-name">CloudFront</text>
+    <text x="508" y="365" class="service-sub">HTTPS / CDN</text>
+  </g>
+  <g>
+    <rect x="590" y="260" width="125" height="110" class="edge-card"/>
+    <rect x="621" y="275" width="63" height="54" rx="8" fill="#3f8f3c"/>
+    <path d="M629 287 Q652 277 676 287 V315 Q652 326 629 315 Z" fill="none" stroke="#ffffff" stroke-width="3"/>
+    <text x="652" y="349" class="service-name">Amazon S3</text>
+    <text x="652" y="365" class="service-sub">React / Vite 静态站</text>
+  </g>
+  <g>
+    <rect x="445" y="520" width="125" height="110" class="edge-card"/>
+    <rect x="478" y="535" width="60" height="51" rx="10" fill="#8b48c7"/>
+    <path d="M490 548 h36 M490 558 h36 M490 568 h36" stroke="#ffffff" stroke-width="3"/>
+    <path d="M497 543 l-7 5 7 5 M519 563 l7 5-7 5" fill="none" stroke="#ffffff" stroke-width="2"/>
+    <text x="508" y="607" class="service-name">API Gateway</text>
+    <text x="508" y="624" class="service-sub">Lambda 兼容入口</text>
+  </g>
+
+  <!-- Public subnet services -->
+  <g>
+    <rect x="730" y="235" width="130" height="100" class="aws-card"/>
+    <rect x="730" y="235" width="130" height="27" rx="10" fill="#7447bd"/>
+    <text x="795" y="253" class="badge">2 AZ / PUBLIC</text>
+    <circle cx="795" cy="285" r="24" fill="#7447bd"/>
+    <path d="M778 285 H812 M795 268 V302 M781 274 L809 296 M809 274 L781 296" stroke="#ffffff" stroke-width="2.5"/>
+    <text x="795" y="321" class="service-name">Application LB</text>
+  </g>
+  <g>
+    <rect x="875" y="235" width="130" height="100" class="aws-card"/>
+    <rect x="875" y="235" width="130" height="27" rx="10" fill="#6842bd"/>
+    <text x="940" y="253" class="badge">PUBLIC A / EGRESS</text>
+    <circle cx="940" cy="285" r="24" fill="#6842bd"/>
+    <path d="M925 274 H953 L944 266 M953 274 L944 282 M955 296 H927 L936 288 M927 296 L936 304" fill="none" stroke="#ffffff" stroke-width="3"/>
+    <text x="940" y="321" class="service-name">NAT Gateway</text>
+  </g>
+  <g>
+    <rect x="1020" y="235" width="130" height="100" class="aws-card"/>
+    <rect x="1020" y="235" width="130" height="27" rx="10" fill="#2367b4"/>
+    <text x="1085" y="253" class="badge">PUBLIC A / SSM</text>
+    <rect x="1055" y="269" width="60" height="37" rx="5" fill="#172033"/>
+    <text x="1063" y="293" font-family="monospace" font-size="18" font-weight="800" fill="#49e2a8">&gt;_</text>
+    <text x="1085" y="321" class="service-name">SSM 跳板机</text>
+  </g>
+
+  <!-- Private subnet services -->
+  <g>
+    <rect x="750" y="440" width="150" height="115" class="aws-card"/>
+    <rect x="750" y="440" width="150" height="28" rx="10" fill="#f08a24"/>
+    <text x="825" y="459" class="badge">AWS LAMBDA</text>
+    <path d="M804 483 l15 0 18 38 h-13 l-12-26-9 19 h-14z" fill="#f08a24" stroke="#9b4a00" stroke-width="2"/>
+    <text x="825" y="531" class="service-name">Lambda Proxy</text>
+    <text x="825" y="549" class="service-sub">VPC 私有 ENI</text>
+  </g>
+  <g>
+    <rect x="940" y="440" width="150" height="115" class="aws-card"/>
+    <rect x="940" y="440" width="150" height="28" rx="10" fill="#7152c9"/>
+    <text x="1015" y="459" class="badge">CLOUD MAP</text>
+    <circle cx="1015" cy="493" r="9" fill="#7152c9"/><circle cx="987" cy="510" r="8" fill="#7152c9"/><circle cx="1043" cy="510" r="8" fill="#7152c9"/>
+    <path d="M1010 500 L992 506 M1020 500 L1038 506 M995 515 H1035" stroke="#7152c9" stroke-width="4"/>
+    <text x="1015" y="535" class="service-name">Service Discovery</text>
+    <text x="1015" y="551" class="service-sub">api.github-info.local</text>
+  </g>
+  <g>
+    <rect x="1130" y="420" width="185" height="140" rx="12" fill="#ffffff" stroke="#e25b18" stroke-width="3.5" filter="url(#shadow)"/>
+    <rect x="1130" y="420" width="185" height="30" rx="10" fill="#ef6c19"/>
+    <text x="1222" y="440" class="badge">ECS FARGATE · GO</text>
+    <rect x="1154" y="470" width="48" height="46" rx="9" fill="#48b9d1" stroke="#172033" stroke-width="2"/>
+    <circle cx="1168" cy="482" r="4" fill="#ffffff"/><circle cx="1188" cy="482" r="4" fill="#ffffff"/>
+    <path d="M1165 498 Q1178 508 1191 498" fill="none" stroke="#ffffff" stroke-width="3"/>
+    <text x="1252" y="485" text-anchor="middle" class="h3">github-info</text>
+    <text x="1252" y="507" text-anchor="middle" class="small">REST API · pgx</text>
+    <rect x="1152" y="526" width="140" height="22" rx="11" fill="#fff2e8" stroke="#e25b18" stroke-width="1.5"/>
+    <text x="1222" y="542" text-anchor="middle" class="tiny" fill="#9a3412">Tasks 跨 2 AZ · 无公网 IP</text>
+  </g>
+  <g>
+    <rect x="1400" y="420" width="170" height="140" rx="12" fill="#ffffff" stroke="#2563aa" stroke-width="3.5" filter="url(#shadow)"/>
+    <rect x="1400" y="420" width="170" height="30" rx="10" fill="#2563aa"/>
+    <text x="1485" y="440" class="badge">AURORA POSTGRESQL</text>
+    <ellipse cx="1485" cy="479" rx="40" ry="14" fill="#e3f0ff" stroke="#1f5f9e" stroke-width="3"/>
+    <path d="M1445 479 V516 Q1485 536 1525 516 V479" fill="#d8eaff" stroke="#1f5f9e" stroke-width="3"/>
+    <ellipse cx="1485" cy="516" rx="40" ry="14" fill="#c8e1ff" stroke="#1f5f9e" stroke-width="3"/>
+    <text x="1485" y="545" class="service-name">personal_info</text>
+  </g>
+  <g>
+    <rect x="960" y="620" width="180" height="105" class="aws-card"/>
+    <rect x="960" y="620" width="180" height="27" rx="10" fill="#d9485f"/>
+    <text x="1050" y="639" class="badge">SECRETS MANAGER</text>
+    <circle cx="1032" cy="680" r="18" fill="#d9485f"/>
+    <circle cx="1028" cy="676" r="6" fill="none" stroke="#ffffff" stroke-width="3"/>
+    <path d="M1033 681 L1046 694 M1042 690 L1049 683" stroke="#ffffff" stroke-width="3"/>
+    <text x="1082" y="678" text-anchor="middle" class="small">DB 密码</text>
+    <text x="1082" y="697" text-anchor="middle" class="tiny muted">运行时注入</text>
+  </g>
+  <g>
+    <rect x="1170" y="620" width="180" height="105" class="aws-card"/>
+    <rect x="1170" y="620" width="180" height="27" rx="10" fill="#d83b70"/>
+    <text x="1260" y="639" class="badge">CLOUDWATCH LOGS</text>
+    <path d="M1202 697 V667 M1220 697 V680 M1238 697 V657 M1256 697 V672" stroke="#d83b70" stroke-width="8"/>
+    <text x="1300" y="678" text-anchor="middle" class="small">ECS / Lambda</text>
+    <text x="1300" y="697" text-anchor="middle" class="tiny muted">日志与监控</text>
+  </g>
+  <g>
+    <rect x="1390" y="620" width="180" height="105" class="aws-card"/>
+    <rect x="1390" y="620" width="180" height="27" rx="10" fill="#ef6c19"/>
+    <text x="1480" y="639" class="badge">AMAZON ECR</text>
+    <path d="M1435 666 l28-12 28 12-28 13z M1435 666 v27 l28 14 28-14 v-27 M1463 679 v28" fill="#ffe6d5" stroke="#ef6c19" stroke-width="2.5"/>
+    <text x="1515" y="680" text-anchor="middle" class="small">Go 镜像</text>
+    <text x="1515" y="699" text-anchor="middle" class="tiny muted">SHA 不可变标签</text>
+  </g>
+
+  <!-- GitHub API outside AWS -->
+  <g filter="url(#shadow)">
+    <path d="M1737 191 Q1760 169 1787 184 Q1810 156 1840 180 Q1873 175 1884 205 Q1900 224 1883 247 Q1887 280 1856 287 Q1837 310 1810 292 Q1780 306 1764 278 Q1734 274 1732 245 Q1711 221 1737 191 Z" fill="#e7f5ff" stroke="#111827" stroke-width="4"/>
+    <circle cx="1810" cy="231" r="34" fill="#172033"/>
+    <text x="1810" y="240" text-anchor="middle" font-size="25" font-weight="900" class="inverse">GH</text>
+    <text x="1810" y="330" text-anchor="middle" class="h2">GitHub API</text>
+    <text x="1810" y="352" text-anchor="middle" class="small muted">api.github.com/user</text>
+  </g>
+
+  <!-- Legend and comic callouts -->
+  <g>
+    <rect x="1710" y="480" width="180" height="180" rx="14" fill="#ffffff" stroke="#111827" stroke-width="3"/>
+    <text x="1800" y="512" text-anchor="middle" class="h3">图例</text>
+    <path d="M1730 540 H1780" class="runtime"/>
+    <text x="1818" y="546" text-anchor="middle" class="small">运行流量</text>
+    <path d="M1730 580 H1780" class="deploy"/>
+    <text x="1818" y="586" text-anchor="middle" class="small">CI/CD 部署</text>
+    <path d="M1730 620 H1780" class="discovery"/>
+    <text x="1828" y="626" text-anchor="middle" class="small">发现 / 观测</text>
+  </g>
+  <path d="M1707 688 l22-14 9-23 22 9 24-6 10 22 21 14-10 23 4 25-25 7-17 18-19-17-25-2-2-25-14-20z" fill="#fff4bd" stroke="#111827" stroke-width="3"/>
+  <text x="1762" y="703" text-anchor="middle" class="small">高可用</text>
+  <text x="1762" y="723" text-anchor="middle" class="small">私网计算</text>
+  <text x="1762" y="743" text-anchor="middle" class="small">公网入口受控</text>
+
+  <!-- CI/CD panel -->
+  <rect x="20" y="830" width="1880" height="350" rx="18" fill="#fffdf7" stroke="#172033" stroke-width="4"/>
+  <rect x="20" y="830" width="1880" height="48" rx="18" fill="#142f52" stroke="#172033" stroke-width="3"/>
+  <text x="48" y="862" font-size="23" font-weight="850" class="inverse">CI/CD · main 生产部署 + PR 独立预览环境</text>
+  <rect x="1570" y="839" width="300" height="30" rx="15" fill="#ffd84b" stroke="#111827" stroke-width="2"/>
+  <text x="1720" y="860" text-anchor="middle" class="small">OIDC 短期凭证 · 无长期 AWS Key</text>
+
+  <!-- Main lane backgrounds and arrows -->
+  <rect x="35" y="892" width="1850" height="112" rx="14" fill="#edf8ee" stroke="#4b914e" stroke-width="2" stroke-dasharray="8 5"/>
+  <rect x="46" y="909" width="120" height="78" rx="12" fill="#306b35" stroke="#172033" stroke-width="3"/>
+  <text x="106" y="939" text-anchor="middle" class="h3 inverse">main</text>
+  <text x="106" y="963" text-anchor="middle" class="small inverse">push 自动部署</text>
+  <path d="M166 948 H188" class="deploy"/>
+  <path d="M340 948 H363" class="deploy"/>
+  <path d="M515 948 H538" class="deploy"/>
+  <path d="M690 948 H713" class="deploy"/>
+  <path d="M865 948 H888" class="deploy"/>
+  <path d="M1040 948 H1063" class="deploy"/>
+  <path d="M1215 948 H1238" class="deploy"/>
+  <path d="M1390 948 H1413" class="deploy"/>
+  <path d="M1565 948 H1588" class="deploy"/>
+  <g><rect x="190" y="907" width="150" height="82" class="pipeline-card"/><circle cx="230" cy="947" r="22" fill="#2f73c8"/><path d="M224 936 l18 11-18 11z" fill="#ffffff"/><text x="285" y="937" text-anchor="middle" class="small">GitHub Actions</text><text x="285" y="960" text-anchor="middle" class="tiny muted">test · build · deploy</text></g>
+  <g><rect x="365" y="907" width="150" height="82" class="pipeline-card"/><path d="M398 929 l17-8 17 8v18q-1 18-17 25-16-7-17-25z" fill="#3868c7"/><path d="M407 945 l6 6 11-14" fill="none" stroke="#ffffff" stroke-width="3"/><text x="466" y="937" text-anchor="middle" class="small">GitHub OIDC</text><text x="466" y="960" text-anchor="middle" class="tiny muted">临时 STS 凭证</text></g>
+  <g><rect x="540" y="907" width="150" height="82" class="pipeline-card"/><path d="M572 958 q13-31 30 0z" fill="#b7462f" stroke="#172033" stroke-width="2"/><path d="M568 958 h39" stroke="#172033" stroke-width="4"/><text x="642" y="937" text-anchor="middle" class="small">Deploy IAM Role</text><text x="642" y="960" text-anchor="middle" class="tiny muted">最小权限</text></g>
+  <g><rect x="715" y="907" width="150" height="82" class="pipeline-card"/><path d="M747 929 l22 0 11 19-11 19h-22l-11-19z" fill="#172033"/><text x="758" y="955" text-anchor="middle" font-size="18" font-weight="900" class="inverse">GO</text><text x="815" y="937" text-anchor="middle" class="small">测试 + 镜像</text><text x="815" y="960" text-anchor="middle" class="tiny muted">linux/amd64</text></g>
+  <g><rect x="890" y="907" width="150" height="82" class="pipeline-card"/><path d="M925 930 l18-8 18 8-18 9z M925 930 v20 l18 9 18-9v-20 M943 939 v20" fill="#ffe5d2" stroke="#ef6c19" stroke-width="2"/><text x="995" y="937" text-anchor="middle" class="small">Amazon ECR</text><text x="995" y="960" text-anchor="middle" class="tiny muted">commit SHA</text></g>
+  <g><rect x="1065" y="907" width="150" height="82" class="pipeline-card"/><path d="M1098 925 h34 v40h-34z" fill="#f08a24"/><path d="M1105 935 h20 M1105 944 h20 M1105 953 h14" stroke="#ffffff" stroke-width="2"/><text x="1170" y="937" text-anchor="middle" class="small">SAM deploy</text><text x="1170" y="960" text-anchor="middle" class="tiny muted">CloudFormation</text></g>
+  <g><rect x="1240" y="907" width="150" height="82" class="pipeline-card"/><rect x="1272" y="925" width="42" height="42" rx="8" fill="#ef6c19"/><text x="1293" y="952" text-anchor="middle" font-size="15" font-weight="900" class="inverse">ECS</text><text x="1343" y="937" text-anchor="middle" class="small">Fargate 更新</text><text x="1343" y="960" text-anchor="middle" class="tiny muted">滚动发布</text></g>
+  <g><rect x="1415" y="907" width="150" height="82" class="pipeline-card"/><path d="M1447 931 Q1465 923 1483 931 V956 Q1465 965 1447 956 Z" fill="#4b9a47"/><text x="1517" y="937" text-anchor="middle" class="small">S3 sync</text><text x="1517" y="960" text-anchor="middle" class="tiny muted">前端静态文件</text></g>
+  <g><rect x="1590" y="907" width="275" height="82" class="pipeline-card"/><circle cx="1632" cy="947" r="23" fill="#7d4fc5"/><path d="M1617 947 H1647 M1632 932 V962" stroke="#ffffff" stroke-width="2"/><text x="1750" y="937" text-anchor="middle" class="small">CloudFront Invalidation</text><text x="1750" y="960" text-anchor="middle" class="tiny muted">生产前端与 API 路由同步上线</text></g>
+
+  <!-- PR lane backgrounds and arrows -->
+  <rect x="35" y="1018" width="1850" height="140" rx="14" fill="#eef3ff" stroke="#315cb5" stroke-width="2" stroke-dasharray="8 5"/>
+  <rect x="46" y="1045" width="120" height="86" rx="12" fill="#315cb5" stroke="#172033" stroke-width="3"/>
+  <text x="106" y="1075" text-anchor="middle" class="h3 inverse">feature / PR</text>
+  <text x="106" y="1099" text-anchor="middle" class="small inverse">独立环境</text>
+  <path d="M166 1088 H188" class="deploy"/>
+  <path d="M340 1088 H363" class="deploy"/>
+  <path d="M515 1088 H538" class="deploy"/>
+  <path d="M690 1088 H713" class="deploy"/>
+  <path d="M865 1088 H888" class="deploy"/>
+  <path d="M1040 1088 H1063" class="deploy"/>
+  <path d="M1285 1088 H1308" class="deploy"/>
+  <path d="M1480 1088 H1503" class="deploy"/>
+  <path d="M1680 1088 H1703" class="deploy"/>
+  <g><rect x="190" y="1041" width="150" height="94" class="pipeline-card"/><circle cx="230" cy="1088" r="22" fill="#2f73c8"/><path d="M224 1077 l18 11-18 11z" fill="#ffffff"/><text x="285" y="1077" text-anchor="middle" class="small">GitHub Actions</text><text x="285" y="1098" text-anchor="middle" class="tiny muted">opened / sync / close</text><text x="285" y="1117" text-anchor="middle" class="tiny muted">fork PR 自动跳过</text></g>
+  <g><rect x="365" y="1041" width="150" height="94" class="pipeline-card"/><path d="M398 1061 l17-8 17 8v18q-1 18-17 25-16-7-17-25z" fill="#3868c7"/><text x="466" y="1077" text-anchor="middle" class="small">GitHub OIDC</text><text x="466" y="1098" text-anchor="middle" class="tiny muted">pull_request subject</text><text x="466" y="1117" text-anchor="middle" class="tiny muted">无 AWS Secret Key</text></g>
+  <g><rect x="540" y="1041" width="150" height="94" class="pipeline-card"/><rect x="554" y="1057" width="34" height="30" rx="6" fill="#d94c4c"/><path d="M562 1072 H581" stroke="#ffffff" stroke-width="3"/><text x="635" y="1065" class="tiny" text-anchor="middle">github-info-pr-</text><text x="635" y="1080" class="tiny" text-anchor="middle">trigger</text><text x="615" y="1100" class="tiny muted" text-anchor="middle">Role 1 · StartBuild</text><text x="615" y="1118" class="tiny muted" text-anchor="middle">BatchGetBuilds</text></g>
+  <g><rect x="715" y="1041" width="150" height="94" class="pipeline-card"/><rect x="729" y="1057" width="34" height="30" rx="6" fill="#3c7ac4"/><path d="M737 1064 h18v16h-18z" fill="none" stroke="#ffffff" stroke-width="2"/><text x="810" y="1065" class="tiny" text-anchor="middle">github-info-pr-</text><text x="810" y="1080" class="tiny" text-anchor="middle">codebuild</text><text x="790" y="1100" class="tiny muted" text-anchor="middle">Role 2 · Build/Deploy</text><text x="790" y="1118" class="tiny muted" text-anchor="middle">ECR + Secret</text></g>
+  <g><rect x="890" y="1041" width="150" height="94" class="pipeline-card"/><path d="M904 1057 h34 v30h-34z" fill="#f08a24"/><path d="M911 1064 h20 M911 1072 h20 M911 1080 h15" stroke="#ffffff" stroke-width="2"/><text x="985" y="1065" class="tiny" text-anchor="middle">github-info-pr-</text><text x="985" y="1080" class="tiny" text-anchor="middle">cloudformation</text><text x="965" y="1100" class="tiny muted" text-anchor="middle">Role 3 · 资源执行</text><text x="965" y="1118" class="tiny muted" text-anchor="middle">不能创建 IAM</text></g>
+  <g><rect x="1065" y="1035" width="220" height="106" rx="12" fill="#ffffff" stroke="#ef6c19" stroke-width="3" filter="url(#shadow)"/><rect x="1065" y="1035" width="220" height="27" rx="10" fill="#ef6c19"/><text x="1175" y="1054" class="badge">github-info-pr-N STACK</text><text x="1175" y="1080" text-anchor="middle" class="small">API GW + Lambda + Cloud Map</text><text x="1175" y="1101" text-anchor="middle" class="small">ECS Service + Task Definition</text><text x="1175" y="1122" text-anchor="middle" class="tiny muted">逻辑数据库 personal_info_pr_N</text></g>
+  <g><rect x="1310" y="1041" width="170" height="94" class="pipeline-card"/><path d="M1345 1088 q10-27 35-17 q14-22 34-5 q22-3 27 17 q18 8 9 24h-95q-17-5-10-19z" fill="#f28a2e"/><text x="1395" y="1074" text-anchor="middle" class="small">Cloudflare Pages</text><text x="1395" y="1114" text-anchor="middle" class="tiny muted">Branch deployment</text></g>
+  <g><rect x="1505" y="1041" width="175" height="94" class="pipeline-card"/><rect x="1520" y="1065" width="145" height="42" rx="8" fill="#e8f2ff" stroke="#2563eb" stroke-width="2"/><text x="1592" y="1082" text-anchor="middle" class="tiny" fill="#174ea6">PR 预览 URL</text><text x="1592" y="1100" text-anchor="middle" class="tiny" fill="#174ea6">pr-N.…pages.dev</text><text x="1592" y="1122" text-anchor="middle" class="tiny muted">每个 PR 固定地址</text></g>
+  <g><rect x="1705" y="1041" width="160" height="94" rx="12" fill="#fff4bd" stroke="#111827" stroke-width="3" filter="url(#shadow)"/><path d="M1725 1061 l12-8 8 12 14-3 4 14 13 7-7 13 3 14-15 3-9 11-11-10-15 0-1-15-9-11 10-9z" fill="#ffd84b" stroke="#111827" stroke-width="2"/><text x="1806" y="1074" text-anchor="middle" class="small">PR closed</text><text x="1806" y="1096" text-anchor="middle" class="tiny">dropdb</text><text x="1806" y="1116" text-anchor="middle" class="tiny">删除 AWS Stack</text></g>
+
+  <text x="950" y="1172" text-anchor="middle" class="tiny muted">github_info · React + Vite · Go net/http + pgx · AWS SAM / CloudFormation · Diagram generated from deployed resources</text>
+</svg>
