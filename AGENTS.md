@@ -141,3 +141,11 @@
 - 告警流向:`CloudWatch Alarm -> SNS github-info-synthetics-alerts -> SQS github-info-synthetics-incidents`;主队列 `RedrivePolicy` 指向 `github-info-synthetics-incident-dlq`(maxReceiveCount=5),给未来 incident worker/人工重放用。
 - SNS subscription 另有 `github-info-synthetics-sns-delivery-dlq`,用于 SNS 向 SQS 投递失败时兜底;QueuePolicy 必须允许该 SNS topic 对主队列和 delivery DLQ 执行 `sqs:SendMessage`。
 - 队列均开 `SqsManagedSseEnabled`、14 天 retention;事件里只含告警上下文,不含 GitHub PAT。
+
+## 2026-07-23 — ECS + CodeDeploy Blue/Green API 灰度(Feature 10)
+
+**发布模型**
+- 生产 API 从 ECS rolling update 改为 CodeDeploy blue/green:`EcsService.DeploymentController=CODE_DEPLOY`,保留原 `EcsTargetGroup` 作为 blue/prod,新增 `EcsGreenTargetGroup`;`CodeDeployDefault.ECSCanary10Percent5Minutes` 做 10%/5min 灰度。
+- `DeploymentCircuitBreaker` 只适合 ECS rolling controller,切 CODE_DEPLOY 时要删;回滚交给 CodeDeploy `AutoRollbackConfiguration` 和 Synthetics API alarms(`api-read`/`api-404`)。
+- GitHub Actions 不再把 `BackendImageTag=$GITHUB_SHA` 直接交给 SAM 更新 ECS Service;先解析当前线上 task definition 的镜像 tag 作为基础设施参数,避免 CloudFormation 直接滚服务。
+- 应用发布由 Actions 注册新 task definition(替换 `server` 容器 image)→ 生成 ECS AppSpec → `aws deploy create-deployment` → `aws deploy wait deployment-successful`。若 GitHub OIDC 角色缺 `ecs:RegisterTaskDefinition`/`iam:PassRole`/`codedeploy:*` 会在此步失败,需补 deploy role 权限。

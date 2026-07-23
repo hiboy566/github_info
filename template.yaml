@@ -557,6 +557,33 @@ Resources:
         - Key: Name
           Value: github-info-api
 
+  EcsGreenTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref Vpc
+      TargetType: ip
+      Protocol: HTTP
+      ProtocolVersion: HTTP1
+      Port: 3000
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200"
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+      Tags:
+        - Key: Name
+          Value: github-info-api-green
+        - Key: Project
+          Value: github-info
+
   AlbListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -640,14 +667,13 @@ Resources:
       LaunchType: FARGATE
       PlatformVersion: LATEST
       HealthCheckGracePeriodSeconds: 90
+      DeploymentController:
+        Type: CODE_DEPLOY
       EnableECSManagedTags: true
       PropagateTags: SERVICE
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
-        DeploymentCircuitBreaker:
-          Enable: true
-          Rollback: true
       LoadBalancers:
         - ContainerName: server
           ContainerPort: 3000
@@ -665,6 +691,79 @@ Resources:
       Tags:
         - Key: Name
           Value: github-info-server
+        - Key: Project
+          Value: github-info
+
+  CodeDeployServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSCodeDeployRoleForECS
+      Tags:
+        - Key: Name
+          Value: github-info-codedeploy
+        - Key: Project
+          Value: github-info
+
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: github-info-api
+      ComputePlatform: ECS
+      Tags:
+        - Key: Name
+          Value: github-info-api
+        - Key: Project
+          Value: github-info
+
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      DeploymentGroupName: github-info-api-bluegreen
+      DeploymentConfigName: CodeDeployDefault.ECSCanary10Percent5Minutes
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+      DeploymentStyle:
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+        DeploymentType: BLUE_GREEN
+      BlueGreenDeploymentConfiguration:
+        DeploymentReadyOption:
+          ActionOnTimeout: CONTINUE_DEPLOYMENT
+        TerminateBlueInstancesOnDeploymentSuccess:
+          Action: TERMINATE
+          TerminationWaitTimeInMinutes: 5
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events:
+          - DEPLOYMENT_FAILURE
+          - DEPLOYMENT_STOP_ON_ALARM
+      AlarmConfiguration:
+        Enabled: true
+        IgnorePollAlarmFailure: false
+        Alarms:
+          - Name: !Ref ApiReadCanaryAlarm
+          - Name: !Ref ApiContractCanaryAlarm
+      ECSServices:
+        - ClusterName: !Ref EcsCluster
+          ServiceName: github-info-server
+      LoadBalancerInfo:
+        TargetGroupPairInfoList:
+          - ProdTrafficRoute:
+              ListenerArns:
+                - !Ref AlbListener
+            TargetGroups:
+              - Name: !GetAtt EcsTargetGroup.TargetGroupName
+              - Name: !GetAtt EcsGreenTargetGroup.TargetGroupName
+      Tags:
+        - Key: Name
+          Value: github-info-api-bluegreen
         - Key: Project
           Value: github-info
 

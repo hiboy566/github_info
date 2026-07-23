@@ -139,6 +139,35 @@ jobs:
           test "$image_digest" != "None"
           echo "Backend image digest: $image_digest"
 
+      - name: Resolve active backend image tag
+        id: active-backend-image
+        env:
+          FALLBACK_IMAGE_TAG: ${{ github.sha }}
+        run: |
+          current_task_definition="$(aws ecs describe-services \
+            --region "$AWS_REGION" \
+            --cluster github-info-cluster \
+            --services github-info-server \
+            --query "services[0].taskDefinition" \
+            --output text 2>/dev/null || true)"
+
+          if [ -z "$current_task_definition" ] || [ "$current_task_definition" = "None" ]; then
+            image_tag="$FALLBACK_IMAGE_TAG"
+          else
+            current_image="$(aws ecs describe-task-definition \
+              --region "$AWS_REGION" \
+              --task-definition "$current_task_definition" \
+              --query "taskDefinition.containerDefinitions[?name=='server'].image | [0]" \
+              --output text)"
+            image_tag="${current_image##*:}"
+            if ! printf '%s' "$image_tag" | grep -Eq '^[0-9a-f]{40}$'; then
+              image_tag="$FALLBACK_IMAGE_TAG"
+            fi
+          fi
+
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+          echo "Infrastructure image tag: $image_tag"
+
       - name: Setup SAM CLI
         uses: aws-actions/setup-sam@v2
 
@@ -175,7 +204,7 @@ jobs:
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
             --parameter-overrides \
-              BackendImageTag="$GITHUB_SHA" \
+              BackendImageTag="${{ steps.active-backend-image.outputs.image_tag }}" \
               BackendRepositoryName="$ECR_REPOSITORY" \
               BackendRepositoryUri="$BACKEND_REPOSITORY_URI" \
               DatabaseClusterIdentifier="$DATABASE_CLUSTER_IDENTIFIER" \
@@ -188,6 +217,102 @@ jobs:
               --stack-name "$STACK_NAME" \
               --query "StackEvents[?contains(ResourceStatus, 'FAILED')].[Timestamp,ResourceStatus,ResourceType,LogicalResourceId,ResourceStatusReason]" \
               --output table || true
+            exit 1
+          fi
+
+      - name: Deploy backend with CodeDeploy canary
+        env:
+          IMAGE_URI: ${{ steps.backend-image.outputs.image_uri }}
+        run: |
+          current_task_definition="$(aws ecs describe-services \
+            --region "$AWS_REGION" \
+            --cluster github-info-cluster \
+            --services github-info-server \
+            --query "services[0].taskDefinition" \
+            --output text)"
+          test -n "$current_task_definition"
+          test "$current_task_definition" != "None"
+
+          aws ecs describe-task-definition \
+            --region "$AWS_REGION" \
+            --task-definition "$current_task_definition" \
+            --query "taskDefinition" \
+            --output json > current-task-definition.json
+
+          jq --arg image "$IMAGE_URI" '
+            .containerDefinitions = (.containerDefinitions | map(
+              if .name == "server" then .image = $image else . end
+            ))
+            | del(
+                .taskDefinitionArn,
+                .revision,
+                .status,
+                .requiresAttributes,
+                .compatibilities,
+                .registeredAt,
+                .registeredBy
+              )
+          ' current-task-definition.json > next-task-definition.json
+
+          next_task_definition="$(aws ecs register-task-definition \
+            --region "$AWS_REGION" \
+            --cli-input-json file://next-task-definition.json \
+            --query "taskDefinition.taskDefinitionArn" \
+            --output text)"
+          test -n "$next_task_definition"
+          test "$next_task_definition" != "None"
+          echo "Registered task definition: $next_task_definition"
+
+          jq -n --arg task_definition "$next_task_definition" '{
+            version: 1,
+            Resources: [
+              {
+                TargetService: {
+                  Type: "AWS::ECS::Service",
+                  Properties: {
+                    TaskDefinition: $task_definition,
+                    LoadBalancerInfo: {
+                      ContainerName: "server",
+                      ContainerPort: 3000
+                    }
+                  }
+                }
+              }
+            ]
+          }' > appspec.json
+
+          jq -n \
+            --arg content "$(cat appspec.json)" \
+            --arg description "GitHub Actions ${GITHUB_SHA}" \
+            '{
+              applicationName: "github-info-api",
+              deploymentGroupName: "github-info-api-bluegreen",
+              description: $description,
+              revision: {
+                revisionType: "AppSpecContent",
+                appSpecContent: {
+                  content: $content
+                }
+              }
+            }' > codedeploy-deployment.json
+
+          deployment_id="$(aws deploy create-deployment \
+            --region "$AWS_REGION" \
+            --cli-input-json file://codedeploy-deployment.json \
+            --query "deploymentId" \
+            --output text)"
+          test -n "$deployment_id"
+          test "$deployment_id" != "None"
+          echo "CodeDeploy deployment: $deployment_id"
+
+          if ! aws deploy wait deployment-successful \
+            --region "$AWS_REGION" \
+            --deployment-id "$deployment_id"; then
+            aws deploy get-deployment \
+              --region "$AWS_REGION" \
+              --deployment-id "$deployment_id" \
+              --query "deploymentInfo.[status,errorInformation]" \
+              --output json || true
             exit 1
           fi
 
