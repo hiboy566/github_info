@@ -145,12 +145,29 @@ jobs:
       - name: Build Lambda package
         run: sam build
 
+      - name: Remove failed deployment stack
+        run: |
+          stack_status="$(aws cloudformation describe-stacks \
+            --region "$AWS_REGION" \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].StackStatus" \
+            --output text 2>/dev/null || true)"
+          if [ "$stack_status" = "ROLLBACK_COMPLETE" ]; then
+            echo "Deleting failed stack before retry: $STACK_NAME"
+            aws cloudformation delete-stack \
+              --region "$AWS_REGION" \
+              --stack-name "$STACK_NAME"
+            aws cloudformation wait stack-delete-complete \
+              --region "$AWS_REGION" \
+              --stack-name "$STACK_NAME"
+          fi
+
       - name: Deploy infrastructure
         env:
           BACKEND_REPOSITORY_URI: ${{ steps.backend-repository.outputs.repository_uri }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
-          sam deploy \
+          if ! sam deploy \
             --region "$AWS_REGION" \
             --stack-name "$STACK_NAME" \
             --resolve-s3 \
@@ -165,7 +182,14 @@ jobs:
               DatabaseName="$DATABASE_NAME" \
               DatabaseUser="$DATABASE_USER" \
               DatabasePassword="$DB_PASSWORD" \
-              FrontendBucketName="$FRONTEND_BUCKET"
+              FrontendBucketName="$FRONTEND_BUCKET"; then
+            aws cloudformation describe-stack-events \
+              --region "$AWS_REGION" \
+              --stack-name "$STACK_NAME" \
+              --query "StackEvents[?contains(ResourceStatus, 'FAILED')].[Timestamp,ResourceStatus,ResourceType,LogicalResourceId,ResourceStatusReason]" \
+              --output table || true
+            exit 1
+          fi
 
       - name: Resolve frontend distribution
         id: frontend

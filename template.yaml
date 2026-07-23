@@ -682,7 +682,6 @@ Resources:
       DBClusterIdentifier: !Ref DatabaseClusterIdentifier
       Engine: aurora-postgresql
       EngineMode: provisioned
-      EngineVersion: "16.6"
       DatabaseName: !Ref DatabaseName
       MasterUsername: !Ref DatabaseUser
       MasterUserPassword: !Sub "{{resolve:secretsmanager:${DatabasePasswordSecret}:SecretString}}"
