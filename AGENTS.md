@@ -133,3 +133,11 @@
 - Synthetics canary `Name` 有长度限制,别用过长名字(如 `github-info-api-contract` 太长);当前用 `github-info-api-404`。
 - canary artifacts 用独立 S3 bucket,30 天生命周期清理,`DeletionPolicy/UpdateReplacePolicy: Retain`;执行角色需 S3 写 artifacts、CloudWatch `PutMetricData`、Lambda log group/stream 写日志。
 - 写入链路 canary 暂未加:需要专用 GitHub 测试 PAT 放 Secrets Manager,严禁使用个人 PAT 或把 token 写进模板/日志。
+
+## 2026-07-23 — Synthetics 告警 SNS/SQS + DLQ(Feature 9)
+
+**事故事件总线**
+- 4 个 Synthetics canary 增加 CloudWatch Alarm,用 `CloudWatchSynthetics/SuccessPercent` + `CanaryName` 维度;`api-read` period=60s,其余 300s;`TreatMissingData=notBreaching`,只把 ALARM 投递到 SNS,避免 OK 恢复事件刷队列。
+- 告警流向:`CloudWatch Alarm -> SNS github-info-synthetics-alerts -> SQS github-info-synthetics-incidents`;主队列 `RedrivePolicy` 指向 `github-info-synthetics-incident-dlq`(maxReceiveCount=5),给未来 incident worker/人工重放用。
+- SNS subscription 另有 `github-info-synthetics-sns-delivery-dlq`,用于 SNS 向 SQS 投递失败时兜底;QueuePolicy 必须允许该 SNS topic 对主队列和 delivery DLQ 执行 `sqs:SendMessage`。
+- 队列均开 `SqsManagedSseEnabled`、14 天 retention;事件里只含告警上下文,不含 GitHub PAT。

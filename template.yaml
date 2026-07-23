@@ -993,6 +993,168 @@ Resources:
         - Key: Project
           Value: github-info
 
+  SyntheticsAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: github-info-synthetics-alerts
+      DisplayName: github-info Synthetics alerts
+      Tags:
+        - Key: Name
+          Value: github-info-synthetics-alerts
+        - Key: Project
+          Value: github-info
+
+  SyntheticsIncidentDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: github-info-synthetics-incident-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Name
+          Value: github-info-synthetics-incident-dlq
+        - Key: Project
+          Value: github-info
+
+  SyntheticsSnsDeliveryDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: github-info-synthetics-sns-delivery-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Name
+          Value: github-info-synthetics-sns-delivery-dlq
+        - Key: Project
+          Value: github-info
+
+  SyntheticsIncidentQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: github-info-synthetics-incidents
+      MessageRetentionPeriod: 1209600
+      VisibilityTimeout: 60
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SyntheticsIncidentDlq.Arn
+        maxReceiveCount: 5
+      Tags:
+        - Key: Name
+          Value: github-info-synthetics-incidents
+        - Key: Project
+          Value: github-info
+
+  SyntheticsIncidentQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref SyntheticsIncidentQueue
+        - !Ref SyntheticsSnsDeliveryDlq
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowSyntheticsAlertsTopicToSendMessages
+            Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource:
+              - !GetAtt SyntheticsIncidentQueue.Arn
+              - !GetAtt SyntheticsSnsDeliveryDlq.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref SyntheticsAlertTopic
+
+  SyntheticsIncidentSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref SyntheticsAlertTopic
+      Protocol: sqs
+      Endpoint: !GetAtt SyntheticsIncidentQueue.Arn
+      RawMessageDelivery: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SyntheticsSnsDeliveryDlq.Arn
+
+  HomepageCanaryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: github-info-homepage-canary-failed
+      AlarmDescription: Homepage Synthetics canary success percent dropped below 100.
+      Namespace: CloudWatchSynthetics
+      MetricName: SuccessPercent
+      Dimensions:
+        - Name: CanaryName
+          Value: !Ref HomepageCanary
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 100
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref SyntheticsAlertTopic
+
+  SpaRouteCanaryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: github-info-spa-route-canary-failed
+      AlarmDescription: Frontend SPA intro route Synthetics canary success percent dropped below 100.
+      Namespace: CloudWatchSynthetics
+      MetricName: SuccessPercent
+      Dimensions:
+        - Name: CanaryName
+          Value: !Ref SpaRouteCanary
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 100
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref SyntheticsAlertTopic
+
+  ApiReadCanaryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: github-info-api-read-canary-failed
+      AlarmDescription: Successful intro API read Synthetics canary success percent dropped below 100.
+      Namespace: CloudWatchSynthetics
+      MetricName: SuccessPercent
+      Dimensions:
+        - Name: CanaryName
+          Value: !Ref ApiReadCanary
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 100
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref SyntheticsAlertTopic
+
+  ApiContractCanaryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: github-info-api-404-canary-failed
+      AlarmDescription: API NOT_FOUND contract Synthetics canary success percent dropped below 100.
+      Namespace: CloudWatchSynthetics
+      MetricName: SuccessPercent
+      Dimensions:
+        - Name: CanaryName
+          Value: !Ref ApiContractCanary
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 100
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref SyntheticsAlertTopic
+
 Outputs:
   BackendRepositoryName:
     Description: ECR repository used for the Go backend container image.
@@ -1054,3 +1216,18 @@ Outputs:
   ApiContractCanaryName:
     Description: CloudWatch Synthetics canary for the API NOT_FOUND JSON contract.
     Value: !Ref ApiContractCanary
+  SyntheticsAlertTopicArn:
+    Description: SNS topic receiving CloudWatch alarms from Synthetics canaries.
+    Value: !Ref SyntheticsAlertTopic
+  SyntheticsIncidentQueueUrl:
+    Description: SQS queue storing Synthetics alarm events for replay or incident automation.
+    Value: !Ref SyntheticsIncidentQueue
+  SyntheticsIncidentQueueArn:
+    Description: ARN of the Synthetics incident queue.
+    Value: !GetAtt SyntheticsIncidentQueue.Arn
+  SyntheticsIncidentDlqUrl:
+    Description: DLQ for Synthetics incident queue processing failures.
+    Value: !Ref SyntheticsIncidentDlq
+  SyntheticsSnsDeliveryDlqUrl:
+    Description: DLQ for SNS subscription delivery failures to the incident queue.
+    Value: !Ref SyntheticsSnsDeliveryDlq
