@@ -26,7 +26,15 @@ Parameters:
   FrontendBucketName:
     Type: String
     Default: github-info-web-956959393973-ap-southeast-2
-    Description: Existing S3 website bucket served to users through CloudFront HTTPS.
+    Description: S3 website bucket created by the github-info-bootstrap stack.
+  BackendRepositoryName:
+    Type: String
+    Default: github-info-server
+    Description: ECR repository created by the github-info-bootstrap stack.
+  BackendRepositoryUri:
+    Type: String
+    Default: 956959393973.dkr.ecr.ap-southeast-2.amazonaws.com/github-info-server
+    Description: ECR repository URI created by the github-info-bootstrap stack.
   BackendImageTag:
     Type: String
     Description: Immutable Git commit SHA used as the ECR image tag for ECS Fargate.
@@ -45,49 +53,6 @@ Globals:
         INTERNAL_API_URL: http://api.github-info.local:3000
 
 Resources:
-  BackendRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: github-info-server
-      EmptyOnDelete: true
-      ImageScanningConfiguration:
-        ScanOnPush: true
-      ImageTagMutability: IMMUTABLE
-      EncryptionConfiguration:
-        EncryptionType: AES256
-      LifecyclePolicy:
-        LifecyclePolicyText: |
-          {
-            "rules": [
-              {
-                "rulePriority": 1,
-                "description": "Expire untagged images after one day",
-                "selection": {
-                  "tagStatus": "untagged",
-                  "countType": "sinceImagePushed",
-                  "countUnit": "days",
-                  "countNumber": 1
-                },
-                "action": { "type": "expire" }
-              },
-              {
-                "rulePriority": 2,
-                "description": "Keep the 20 newest images",
-                "selection": {
-                  "tagStatus": "any",
-                  "countType": "imageCountMoreThan",
-                  "countNumber": 20
-                },
-                "action": { "type": "expire" }
-              }
-            ]
-          }
-      Tags:
-        - Key: Name
-          Value: github-info-server
-        - Key: Project
-          Value: github-info
-
   FrontendSpaRewriteFunction:
     Type: AWS::CloudFront::Function
     Properties:
@@ -619,7 +584,7 @@ Resources:
       ContainerDefinitions:
         - Name: server
           Essential: true
-          Image: !Join [":", [!GetAtt BackendRepository.RepositoryUri, !Ref BackendImageTag]]
+          Image: !Join [":", [!Ref BackendRepositoryUri, !Ref BackendImageTag]]
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -743,10 +708,10 @@ Resources:
 Outputs:
   BackendRepositoryName:
     Description: ECR repository used for the Go backend container image.
-    Value: !Ref BackendRepository
+    Value: !Ref BackendRepositoryName
   BackendRepositoryUri:
     Description: ECR repository URI used by GitHub Actions and ECS.
-    Value: !GetAtt BackendRepository.RepositoryUri
+    Value: !Ref BackendRepositoryUri
   ApplicationLoadBalancerUrl:
     Description: Direct public HTTP endpoint for the ECS Fargate API.
     Value: !Sub http://${ApplicationLoadBalancer.DNSName}

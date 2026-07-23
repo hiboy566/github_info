@@ -68,6 +68,7 @@ PORT=3000
 
 ![github_info AWS 部署架构图](docs/architecture/github-info-aws-architecture.png)
 
+- **部署引导**：`github-info-bootstrap` CloudFormation 栈先创建 ECR 与前端 S3 网站桶，随后主 SAM 栈构建并部署应用资源，支持从空 AWS 环境恢复。
 - **前端**：S3 托管静态文件，CloudFront 提供 HTTPS。普通页面请求进入 S3，`/api/*` 通过独立 Cache Behavior 转发到 ALB。
 - **容器镜像**：GitHub Actions 使用提交 SHA 构建 `linux/amd64` Go 镜像并推送到私有 ECR；仓库开启不可变标签、推送扫描和生命周期清理。
 - **后端**：公网 ALB 位于两个公网子网；ECS Fargate 服务位于两个私有子网，不分配公网 IP。ALB 仅把流量转发到 ECS 安全组的 `3000` 端口。
@@ -115,6 +116,8 @@ github_info/
 │   ├── ui/          # 共享 UI 组件（shadcn）
 │   ├── env/         # 前端环境变量校验（VITE_SERVER_URL）
 │   └── config/      # 共享 tsconfig
-├── template.yaml    # AWS SAM/CloudFormation：ECR + ECS/Fargate + ALB + Cloud Map + Lambda + VPC + Aurora
+├── infra/
+│   └── production-bootstrap.yaml # 首次部署所需的 ECR 与前端 S3
+├── template.yaml    # AWS SAM/CloudFormation：ECS/Fargate + ALB + Cloud Map + Lambda + VPC + Aurora
 └── docs/            # 产品 PRD
 ```
