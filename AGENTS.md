@@ -149,3 +149,6 @@
 - `DeploymentCircuitBreaker` 只适合 ECS rolling controller,切 CODE_DEPLOY 时要删;回滚交给 CodeDeploy `AutoRollbackConfiguration` 和 Synthetics API alarms(`api-read`/`api-404`)。
 - GitHub Actions 不再把 `BackendImageTag=$GITHUB_SHA` 直接交给 SAM 更新 ECS Service;先解析当前线上 task definition 的镜像 tag 作为基础设施参数,避免 CloudFormation 直接滚服务。
 - 应用发布由 Actions 注册新 task definition(替换 `server` 容器 image)→ 生成 ECS AppSpec → `aws deploy create-deployment` → `aws deploy wait deployment-successful`。若 GitHub OIDC 角色缺 `ecs:RegisterTaskDefinition`/`iam:PassRole`/`codedeploy:*` 会在此步失败,需补 deploy role 权限。
+
+**架构图**
+- 生产运行与可靠性漫画风架构图保存为 `docs/architecture/github-info-production-reliability-architecture.png`,README 云端部署章节已引用;内容覆盖 CloudFront/S3、ALB、ECS Fargate、Aurora、Secrets Manager、GitHub Actions/ECR/SAM/CodeDeploy Blue-Green、Synthetics、CloudWatch Alarms、SNS、SQS 与 DLQ。

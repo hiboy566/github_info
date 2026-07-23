@@ -68,6 +68,8 @@ PORT=3000
 
 ![github_info AWS 部署架构图](docs/architecture/github-info-aws-architecture.png)
 
+![github_info 生产运行与可靠性架构图](docs/architecture/github-info-production-reliability-architecture.png)
+
 - **部署引导**：`github-info-bootstrap` CloudFormation 栈先创建 ECR 与前端 S3 网站桶，随后主 SAM 栈构建并部署应用资源，支持从空 AWS 环境恢复。
 - **前端**：S3 托管静态文件，CloudFront 提供 HTTPS。普通页面请求进入 S3，`/api/*` 通过独立 Cache Behavior 转发到 ALB。
 - **容器镜像**：GitHub Actions 使用提交 SHA 构建 `linux/amd64` Go 镜像并推送到私有 ECR；仓库开启不可变标签、推送扫描和生命周期清理。
