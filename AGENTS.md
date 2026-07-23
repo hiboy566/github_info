@@ -124,3 +124,12 @@
 - ECR 仓库 `github-info-server` 使用不可变 Git SHA 标签;Actions 必须先 build/push 当前 SHA,再把 `BackendImageTag=$GITHUB_SHA` 传给 SAM,避免 ECS 引用尚不存在的镜像。
 - Fargate Task 使用 `awsvpc`、Target Group `ip`、256 CPU/512 MiB、两个私有子网且不分配公网 IP;数据库密码由 Secrets Manager 注入 `PGPASSWORD`,Task Execution Role 仅负责 ECR/Logs/读取该 Secret。
 - Cloud Map 名称固定 `api.github-info.local`;CloudFront API behavior 使用托管 `CachingDisabled` 与 `AllViewerExceptHostHeader` 策略。
+
+## 2026-07-23 — CloudWatch Synthetics 巡检(Feature 8)
+
+**Canary 落地**
+- 生产主栈 `template.yaml` 增加 4 个无 PAT canary:`github-info-homepage`(首页浏览器)、`github-info-spa-route`(`/intro/hiboy566` 浏览器)、`github-info-api-read`(`/api/intro/hiboy566` JSON 读链路)、`github-info-api-404`(不存在用户 `404 + NOT_FOUND` 契约)。
+- `ap-southeast-2` 当前支持 `syn-nodejs-puppeteer-16.1`(用 `aws synthetics describe-runtime-versions` 实测);CloudFormation 里 `Handler` 必须放在 `Code` 下,不是 `AWS::Synthetics::Canary` 顶层,否则 `sam validate --lint` 报 `Handler unexpected`。
+- Synthetics canary `Name` 有长度限制,别用过长名字(如 `github-info-api-contract` 太长);当前用 `github-info-api-404`。
+- canary artifacts 用独立 S3 bucket,30 天生命周期清理,`DeletionPolicy/UpdateReplacePolicy: Retain`;执行角色需 S3 写 artifacts、CloudWatch `PutMetricData`、Lambda log group/stream 写日志。
+- 写入链路 canary 暂未加:需要专用 GitHub 测试 PAT 放 Secrets Manager,严禁使用个人 PAT 或把 token 写进模板/日志。

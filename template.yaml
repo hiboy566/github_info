@@ -704,6 +704,295 @@ Resources:
       Engine: aurora-postgresql
       PubliclyAccessible: false
 
+  SyntheticsArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteCanaryArtifactsAfter30Days
+            Status: Enabled
+            ExpirationInDays: 30
+      Tags:
+        - Key: Name
+          Value: github-info-synthetics-artifacts
+        - Key: Project
+          Value: github-info
+
+  SyntheticsCanaryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - synthetics.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RunGithubInfoCanaries
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource: !GetAtt SyntheticsArtifactBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub ${SyntheticsArtifactBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cwsyn-github-info-*
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cwsyn-github-info-*:log-stream:*
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: CloudWatchSynthetics
+      Tags:
+        - Key: Name
+          Value: github-info-synthetics
+        - Key: Project
+          Value: github-info
+
+  HomepageCanary:
+    Type: AWS::Synthetics::Canary
+    Properties:
+      Name: github-info-homepage
+      ArtifactS3Location: !Sub s3://${SyntheticsArtifactBucket}/homepage
+      ExecutionRoleArn: !GetAtt SyntheticsCanaryRole.Arn
+      RuntimeVersion: syn-nodejs-puppeteer-16.1
+      StartCanaryAfterCreation: true
+      Schedule:
+        Expression: rate(5 minutes)
+      RunConfig:
+        TimeoutInSeconds: 60
+        MemoryInMB: 960
+      Code:
+        Handler: index.handler
+        Script: !Sub |
+          const synthetics = require('@aws/synthetics-puppeteer');
+
+          exports.handler = async () => {
+            const page = await synthetics.getPage();
+            const url = 'https://${FrontendDistribution.DomainName}/';
+
+            await synthetics.executeStep('load-homepage', async () => {
+              const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+              if (!response || response.status() !== 200) {
+                throw new Error('Expected homepage HTTP 200, got ' + (response ? response.status() : 'no response'));
+              }
+            });
+
+            await synthetics.executeStep('verify-homepage-content', async () => {
+              await page.waitForSelector('input[name="token"]', { timeout: 10000 });
+              const bodyText = await page.evaluate(() => document.body.innerText);
+              if (!bodyText.includes('GitHub Account Fetcher')) {
+                throw new Error('Homepage title was not rendered');
+              }
+              if (!bodyText.includes('GitHub Personal Access Token')) {
+                throw new Error('Token form label was not rendered');
+              }
+            });
+          };
+      Tags:
+        - Key: Name
+          Value: github-info-homepage
+        - Key: Project
+          Value: github-info
+
+  SpaRouteCanary:
+    Type: AWS::Synthetics::Canary
+    Properties:
+      Name: github-info-spa-route
+      ArtifactS3Location: !Sub s3://${SyntheticsArtifactBucket}/spa-route
+      ExecutionRoleArn: !GetAtt SyntheticsCanaryRole.Arn
+      RuntimeVersion: syn-nodejs-puppeteer-16.1
+      StartCanaryAfterCreation: true
+      Schedule:
+        Expression: rate(5 minutes)
+      RunConfig:
+        TimeoutInSeconds: 60
+        MemoryInMB: 960
+      Code:
+        Handler: index.handler
+        Script: !Sub |
+          const synthetics = require('@aws/synthetics-puppeteer');
+
+          exports.handler = async () => {
+            const page = await synthetics.getPage();
+            const url = 'https://${FrontendDistribution.DomainName}/intro/hiboy566';
+
+            await synthetics.executeStep('load-spa-route', async () => {
+              const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+              if (!response || response.status() !== 200) {
+                throw new Error('Expected SPA route HTTP 200, got ' + (response ? response.status() : 'no response'));
+              }
+            });
+
+            await synthetics.executeStep('verify-intro-content', async () => {
+              await page.waitForFunction(() => document.body.innerText.includes('@hiboy566'), { timeout: 15000 });
+              const bodyText = await page.evaluate(() => document.body.innerText);
+              if (!bodyText.includes('个人介绍')) {
+                throw new Error('Intro page content was not rendered');
+              }
+            });
+          };
+      Tags:
+        - Key: Name
+          Value: github-info-spa-route
+        - Key: Project
+          Value: github-info
+
+  ApiReadCanary:
+    Type: AWS::Synthetics::Canary
+    DependsOn: EcsService
+    Properties:
+      Name: github-info-api-read
+      ArtifactS3Location: !Sub s3://${SyntheticsArtifactBucket}/api-read
+      ExecutionRoleArn: !GetAtt SyntheticsCanaryRole.Arn
+      RuntimeVersion: syn-nodejs-puppeteer-16.1
+      StartCanaryAfterCreation: true
+      Schedule:
+        Expression: rate(1 minute)
+      RunConfig:
+        TimeoutInSeconds: 60
+        MemoryInMB: 960
+      Code:
+        Handler: index.handler
+        Script: !Sub |
+          const https = require('https');
+          const synthetics = require('@aws/synthetics-puppeteer');
+
+          function requestJson(path) {
+            const url = new URL(path, 'https://${FrontendDistribution.DomainName}');
+            return new Promise((resolve, reject) => {
+              const req = https.request(url, { method: 'GET', timeout: 30000 }, (res) => {
+                let body = '';
+                res.setEncoding('utf8');
+                res.on('data', (chunk) => { body += chunk; });
+                res.on('end', () => {
+                  let json;
+                  try {
+                    json = JSON.parse(body);
+                  } catch {
+                    reject(new Error('Response was not JSON: ' + body.slice(0, 120)));
+                    return;
+                  }
+                  resolve({ statusCode: res.statusCode, headers: res.headers, body: json });
+                });
+              });
+              req.on('error', reject);
+              req.on('timeout', () => req.destroy(new Error('Request timed out')));
+              req.end();
+            });
+          }
+
+          exports.handler = async () => {
+            await synthetics.executeStep('get-existing-intro', async () => {
+              const result = await requestJson('/api/intro/hiboy566');
+              if (result.statusCode !== 200) {
+                throw new Error('Expected API read HTTP 200, got ' + result.statusCode);
+              }
+              if (!result.headers['content-type'] || !result.headers['content-type'].includes('application/json')) {
+                throw new Error('Expected JSON content type');
+              }
+              if (!result.body.account || result.body.account.login !== 'hiboy566') {
+                throw new Error('Expected account.login to be hiboy566');
+              }
+            });
+          };
+      Tags:
+        - Key: Name
+          Value: github-info-api-read
+        - Key: Project
+          Value: github-info
+
+  ApiContractCanary:
+    Type: AWS::Synthetics::Canary
+    DependsOn: EcsService
+    Properties:
+      Name: github-info-api-404
+      ArtifactS3Location: !Sub s3://${SyntheticsArtifactBucket}/api-404
+      ExecutionRoleArn: !GetAtt SyntheticsCanaryRole.Arn
+      RuntimeVersion: syn-nodejs-puppeteer-16.1
+      StartCanaryAfterCreation: true
+      Schedule:
+        Expression: rate(5 minutes)
+      RunConfig:
+        TimeoutInSeconds: 60
+        MemoryInMB: 960
+      Code:
+        Handler: index.handler
+        Script: !Sub |
+          const https = require('https');
+          const synthetics = require('@aws/synthetics-puppeteer');
+
+          function requestJson(path) {
+            const url = new URL(path, 'https://${FrontendDistribution.DomainName}');
+            return new Promise((resolve, reject) => {
+              const req = https.request(url, { method: 'GET', timeout: 30000 }, (res) => {
+                let body = '';
+                res.setEncoding('utf8');
+                res.on('data', (chunk) => { body += chunk; });
+                res.on('end', () => {
+                  let json;
+                  try {
+                    json = JSON.parse(body);
+                  } catch {
+                    reject(new Error('Response was not JSON: ' + body.slice(0, 120)));
+                    return;
+                  }
+                  resolve({ statusCode: res.statusCode, headers: res.headers, body: json });
+                });
+              });
+              req.on('error', reject);
+              req.on('timeout', () => req.destroy(new Error('Request timed out')));
+              req.end();
+            });
+          }
+
+          exports.handler = async () => {
+            await synthetics.executeStep('verify-api-not-found-contract', async () => {
+              const result = await requestJson('/api/intro/github-info-synthetics-missing-user');
+              if (result.statusCode !== 404) {
+                throw new Error('Expected API contract HTTP 404, got ' + result.statusCode);
+              }
+              if (!result.headers['content-type'] || !result.headers['content-type'].includes('application/json')) {
+                throw new Error('Expected JSON content type');
+              }
+              if (!result.body.error || result.body.error.code !== 'NOT_FOUND') {
+                throw new Error('Expected NOT_FOUND error code');
+              }
+            });
+          };
+      Tags:
+        - Key: Name
+          Value: github-info-api-404
+        - Key: Project
+          Value: github-info
+
 Outputs:
   BackendRepositoryName:
     Description: ECR repository used for the Go backend container image.
@@ -753,3 +1042,15 @@ Outputs:
   FrontendDistributionId:
     Description: CloudFront distribution ID used for cache invalidation.
     Value: !Ref FrontendDistribution
+  HomepageCanaryName:
+    Description: CloudWatch Synthetics canary for the public homepage.
+    Value: !Ref HomepageCanary
+  SpaRouteCanaryName:
+    Description: CloudWatch Synthetics canary for the frontend intro route.
+    Value: !Ref SpaRouteCanary
+  ApiReadCanaryName:
+    Description: CloudWatch Synthetics canary for the successful intro API read path.
+    Value: !Ref ApiReadCanary
+  ApiContractCanaryName:
+    Description: CloudWatch Synthetics canary for the API NOT_FOUND JSON contract.
+    Value: !Ref ApiContractCanary
